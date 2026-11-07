@@ -38,6 +38,10 @@ In a Herdr Lab window running Pi with this extension, in a RentAPlace copy: `/la
 - The report's screenshot was taken before the checklist redrew. The result is now shown first.
 - Guest Main was running `find /` on the computer. It now gets read-only tools (`read,grep,find,ls`).
 
+## Dense support roles (2026-11-07, later)
+
+After `/role` switched to a verdict plus numbered emoji findings and a fast default, the lab opens roles with `--model fast`. Critic with a fourth expectation (`/role send main #1` delivers exactly one finding): 4 of 4 Haiku runs passed after the Critic stopped listing ✅ "settled" items, which had led it to endorse Main's assumed default (2 of 4 runs failed before). Notes passed 3/3. One run through the new default (`--model fast`) passed 4/4.
+
 ## Teardown
 
 After every batch, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"sockets":[]}`, and no Herdr Lab process remained. The everyday Herdr core was never addressed: every hc call runs with `HC_SESSION=lab-…` and the lab's own state folder.

@@ -31,7 +31,7 @@ export function parseTest(args: string[]) {
 	const o: Record<string, any> = { role: '' };
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
-		if (a === '--model' || a === '--tester-model' || a === '--role-extension' || a === '--thinking') { const v = args[++i]; if (!v) throw Error(`${a} needs a value.`); o[a.slice(2).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = v; }
+		if (a === '--model' || a === '--role-model' || a === '--tester-model' || a === '--role-extension' || a === '--thinking') { const v = args[++i]; if (!v) throw Error(`${a} needs a value.`); o[a.slice(2).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = v; }
 		else if (a === '--behind') o.background = true;
 		else if (a.startsWith('--')) throw Error(`Unknown option ${a}. Try /lab --help.`);
 		else if (!o.role) o.role = a;
@@ -121,7 +121,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	async function test(ctx: ExtensionContext, o: Record<string, any>) {
 		const model = o.model || modelOf(ctx);
 		if (!model) throw Error('No model is selected. Choose one with /model, or pass --model provider/id.');
-		const options = { project: ctx.cwd, role: o.role, model, thinking: o.thinking || thinking(), testerModel: o.testerModel || model, testerThinking: o.testerModel ? undefined : (o.thinking || thinking()), background: !!o.background, roleExtension: o.roleExtension };
+		const options = { project: ctx.cwd, role: o.role, model, roleModel: o.roleModel, thinking: o.thinking || thinking(), testerModel: o.testerModel || model, testerThinking: o.testerModel ? undefined : (o.thinking || thinking()), background: !!o.background, roleExtension: o.roleExtension };
 		const run = await core.start(options, step => { if (ctx.hasUI) ctx.ui.setWidget(MSG, [`Herdr Lab · ${o.role} · ${step}…`]); });
 		lastRun = run.id; watch(run.id);
 		return run;

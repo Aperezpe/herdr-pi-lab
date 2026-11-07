@@ -80,6 +80,8 @@ Each lab run uses model tokens for guest Main, the role and the Tester. By defau
 
 **Limits.** The lab runs as you, on your computer: the role can still read files outside the project copy and use the network. Use it for roles you're building, not for untrusted code. Judgments come from a model; See/Absent lines and quote checks are exact. The Tester reads what's on screen now, so a long answer that scrolled away can't be quoted.
 
+The role opens with `/role NAME --model fast`: the fast default (Haiku) that `/role` gives people, so the lab tests what you'll actually use. Pass `--role-model provider/id` or `--role-model main` to test another. This needs herdr-pi-role from 2026-11-07 or later; an older `/role` rejects `fast`.
+
 ## Agent interface
 
 The `lab` tool gives an agent the same operations: `help`, `doctor`, `roles`, `test {role, model?, testerModel?, behind?}` (returns the run ID at once), `wait {run, seconds?}` (every verdict with evidence), `status {run}`, `list`, `report {role}`, `stop {run}`. `/lab new` uses it to run the lab after writing a role.

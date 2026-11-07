@@ -39,7 +39,7 @@ export function labHelp(shortcut?: string): string {
 		'',
 		'/lab new asks a few questions, writes the expectations for you to approve, then writes role.md and runs the lab until the role passes or needs you. /lab test runs the same check again after you change the role or its expectations.',
 		'Reports: roles/<role>/reports/<time>-<run>.md with a screenshot. The lab stays open so you can look; /lab stop closes it.',
-		'Models: guest Main and the role use this conversation\'s model unless you pass --model; the Tester uses it too unless --tester-model. Each lab run costs model tokens.',
+		'Models: guest Main uses this conversation\'s model unless you pass --model. The role opens on /role\'s fast default (Haiku), as it would for you, unless --role-model provider/id (or main). The Tester uses Main\'s model unless --tester-model. Each lab run costs model tokens.',
 		`Type a space after /lab for examples; ↑/↓ and Tab insert one.${shortcut ? ` Shortcut: ${shortcut}.` : ''}`,
 	].join('\n');
 }
@@ -87,7 +87,7 @@ export function labHint(text: string): string | undefined {
 	const arg = rest.join(' ');
 	switch (sub) {
 		case 'new': return !arg ? '<Role> [what it should do] · e.g. Concierge' : !arg.includes(' ') ? '[what it should do] · Enter: start the interview' : 'Enter: start the interview';
-		case 'test': return !arg ? '<Role> [--model provider/id] · Tab: roles with expectations' : /--(tester-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
+		case 'test': return !arg ? '<Role> [--model provider/id] · Tab: roles with expectations' : /--(tester-|role-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
 		case 'report': return !arg ? '<Role> · its latest report' : 'Enter: show the report';
 		case 'stop': return !arg ? '[run ID | all] · default: the last lab you started' : 'Enter: close it';
 		case 'list': return 'Enter: labs on this computer';

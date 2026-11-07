@@ -320,7 +320,7 @@ export async function start(o, progress = () => {}) {
   mkdir(d.root); mkdir(d.logs); mkdir(d.config); mkdir(d.sock);
   fs.writeFileSync(path.join(d.root, 'expectations.md'), markdown);
   const projectName = (path.basename(project).toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'project').slice(0, 40);
-  const base = { id, version: VERSION, role, project, projectName, expectations: loc.file, roleDir: loc.dir, customJob: !!customJob, model: o.model, testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} };
+  const base = { id, version: VERSION, role, project, projectName, expectations: loc.file, roleDir: loc.dir, customJob: !!customJob, model: o.model, roleModel: o.roleModel || 'fast', testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} };
   writeRun(id, base);
   writeState(id, { id, role, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
   try {
@@ -366,7 +366,8 @@ export async function start(o, progress = () => {}) {
 
     progress(`Opening ${role} with /role`);
     const known = new Set(windowPanes(id).map(p => p.terminal));
-    const cmd = `/role ${role} --model main${customJob ? ' ' + customJob : ''}`;
+    // Roles are quick visual support and default to a fast model in /role (John, 2026-11-07); test them on what people will use.
+    const cmd = `/role ${role} --model ${o.roleModel || 'fast'}${customJob ? ' ' + customJob : ''}`;
     hc(id, ['send', main, cmd, '--json'], { timeout: 20000 });
     const opened = await until(() => windowPanes(id).find(p => !known.has(p.terminal)), 60, `the ${role} pane (check guest Main for an error)`);
     hc(id, ['label', opened.terminal, `lab.pane=${role}`], { check: false });
