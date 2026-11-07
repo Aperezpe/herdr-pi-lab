@@ -8,7 +8,7 @@ Test project: a one-file RentAPlace repository with the course's `/role` extensi
 
 | Role | Kind | Result | What it shows |
 |---|---|---|---|
-| Critic | starter | 3/3 with Sonnet as the guest; with Haiku, 4 of 5 runs passed | The same role can pass and fail: on one Haiku run the Critic flagged the vague scope but didn't ask the question, and the Tester failed expectation 1, quoting “Main's version is clearer, but it is still unverified.” |
+| Critic | starter | 3/3 with Sonnet as the guest; with Haiku, 10 of 11 runs passed | The same role can pass and fail: on one Haiku run the Critic flagged the vague scope but didn't ask the question, and the Tester failed expectation 1, quoting “Main's version is clearer, but it is still unverified.” |
 | Critic + `role.md` | custom job | 3/3 | A Job that says "ask the person directly" passed. |
 | Notes | starter | 3/3 | Records a decision, keeps an open question apart, stays out of Main. |
 | Concierge | custom | 2/2 | Comments on a guest reply; says "Nothing for guests here" on engineering work. |
@@ -23,6 +23,10 @@ In a Herdr Lab window running Pi with this extension (Sonnet 5.5), in a fresh Bu
 3. It wrote `role.md`, then called `lab` test and wait. A second Herdr Lab window opened from inside the first.
 4. Run 1: 1 of 4 failed (it commented on an unrelated rename). Run 2: 2 of 4 failed. It changed only the Job each time.
 5. Run 3: 4/4. Main reported the result, the report path and one line per expectation, and left the lab open.
+
+## `/lab test` typed into Pi
+
+In a Herdr Lab window running Pi with this extension, in a RentAPlace copy: `/lab test Critic --model anthropic/claude-haiku-5-5 --tester-model anthropic/claude-sonnet-5-5`. Main's checklist went from `Before: …` and `Opening Critic with /role…` to `Tester checking 0/3`, `1/3`, `2/3`, then posted `Herdr Lab · Critic: all expectations met`, the report path and "The lab is still open for you to look. /lab stop closes it." The checklist cleared itself after about 15 seconds. The first attempt, in a copy without `.pi/`, stopped with the intended error: "The /role extension was not found in this project. Install it here first (pi install --local git:github.com/johnlindquist/herdr-pi-role), or pass --role-extension PATH."
 
 ## Findings that changed the code
 
@@ -41,5 +45,5 @@ After every batch, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"
 ## Not yet tested
 
 - Linux and Windows. Herdr versions other than 0.1.13.
-- `/lab` typed into a Pi in your everyday Herdr. The CLI runs above were started from a pane of the everyday Herdr, with its `HC_*` variables set, and the `/lab new` run used the extension from inside a lab window; the everyday-Pi command path itself hasn't been typed by hand yet.
+- `/lab` typed into a Pi in your everyday Herdr. The same command ran from a Pi inside a lab window, and the CLI runs were started from a pane of the everyday Herdr with its `HC_*` variables set.
 - Several runs of the same expectations to measure how often a role passes.
