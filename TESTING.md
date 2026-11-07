@@ -8,7 +8,8 @@ Test project: a one-file RentAPlace repository with the course's `/role` extensi
 
 | Role | Kind | Result | What it shows |
 |---|---|---|---|
-| Critic | starter | 3/3 with Sonnet as the guest; with Haiku, 10 of 11 runs passed | The same role can pass and fail: on one Haiku run the Critic flagged the vague scope but didn't ask the question, and the Tester failed expectation 1, quoting “Main's version is clearer, but it is still unverified.” |
+| Critic (three jobs) | starter, `examples/critic/expectations.md` | 5 of 5 Haiku runs passed 3/3 (lab-479207, lab-365cc7, lab-593e67, lab-003cca, lab-a4107e) on a copy of RentAPlace 09e01d2 | Missing information, blast radius and task size. Before the Critic's job changed, the earlier starter failed “Names the blast radius” on 1 of 2 runs (lab-732a34): it stated side effects as facts and never asked whether they should change. A stale RentAPlace copy without a cleaning fee also failed it, because there was nothing to touch. |
+| Critic (earlier expectations) | starter | 3/3 with Sonnet as the guest; with Haiku, 10 of 11 runs passed | The same role can pass and fail: on one Haiku run the Critic flagged the vague scope but didn't ask the question, and the Tester failed expectation 1, quoting “Main's version is clearer, but it is still unverified.” |
 | Critic + `role.md` | custom job | 3/3 | A Job that says "ask the person directly" passed. |
 | Notes | starter | 3/3 | Records a decision, keeps an open question apart, stays out of Main. |
 | Concierge | custom | 2/2 | Comments on a guest reply; says "Nothing for guests here" on engineering work. |
