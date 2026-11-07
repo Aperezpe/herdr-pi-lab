@@ -8,7 +8,7 @@ Test project: a one-file RentAPlace repository with the course's `/role` extensi
 
 | Role | Kind | Result | What it shows |
 |---|---|---|---|
-| Critic | starter | 3/3 · passed with Sonnet as the guest; Haiku passed 1 of 2 runs | The same role can pass and fail across runs: on one Haiku run the Critic flagged the vague scope but didn't ask the question, and the Tester failed it with a quote. |
+| Critic | starter | 3/3 with Sonnet as the guest; with Haiku, 4 of 5 runs passed | The same role can pass and fail: on one Haiku run the Critic flagged the vague scope but didn't ask the question, and the Tester failed expectation 1, quoting “Main's version is clearer, but it is still unverified.” |
 | Critic + `role.md` | custom job | 3/3 | A Job that says "ask the person directly" passed. |
 | Notes | starter | 3/3 | Records a decision, keeps an open question apart, stays out of Main. |
 | Concierge | custom | 2/2 | Comments on a guest reply; says "Nothing for guests here" on engineering work. |
