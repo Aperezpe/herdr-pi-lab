@@ -7,8 +7,8 @@ const critic = fs.readFileSync(new URL('../examples/critic/expectations.md', imp
 test('the Critic example parses into a Before step and three expectations', () => {
 	const s = parse(critic, 'Critic');
 	expect(s.before.map((l: any) => l.pane)).toEqual(['Main']);
-	expect(s.items.map((i: any) => i.title)).toEqual(['Asks about a skipped decision', 'Its reply stays in its own pane', 'Only an explicit send reaches Main']);
-	expect(steps(s.items[2])[0]).toMatchObject({ pane: 'Critic', text: 'Which homes should it cover?'.replace(/^/, '/role send main ') });
+	expect(s.items.map((i: any) => i.title)).toEqual(['Asks for what the prompt leaves out', 'Names the blast radius', 'Splits a big task']);
+	expect(steps(s.items[2])[0]).toMatchObject({ pane: 'Main', text: expect.stringContaining('host accounts') });
 	expect(judged(s.items[0]).map((l: any) => l.kind)).toEqual(['expect', 'never']);
 });
 
