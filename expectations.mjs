@@ -4,12 +4,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const KINDS = ['do', 'expect', 'never', 'see', 'absent'];
+export const KINDS = ['do', 'run', 'expect', 'never', 'see', 'absent'];
 export const SETUP_TITLES = /^(before|setup|before the role opens)$/i;
 
 export const FORMAT = `# <Role> expectations
 
 ## Before
+Run: <optional: a shell command the lab runs in the project copy first, e.g. to plant a bug>
 Do (Main): <optional: a prompt Main gets before the role opens>
 
 ## <Expectation title>
@@ -47,18 +48,20 @@ export function parse(markdown, role = 'Role') {
       else { const item = { id: out.items.length + 1, title, lines: [] }; out.items.push(item); section = item; }
       continue;
     }
-    const m = line.match(/^(Do|Expect|Never|See|Absent)\s*(?:\(([^)]+)\))?\s*:\s*(.+)$/i);
+    const m = line.match(/^(Do|Run|Expect|Never|See|Absent)\s*(?:\(([^)]+)\))?\s*:\s*(.+)$/i);
     if (!m) {
       if (section && section.lines.length && /^\s/.test(raw)) { section.lines.at(-1).text += ' ' + line.trim(); continue; }
       if (!section) continue; // prose before the first section is commentary
-      throw Error(`Line ${n}: start with Do, Expect, Never, See or Absent, e.g. "Expect (${role}): asks which homes it covers".`);
+      throw Error(`Line ${n}: start with Do, Run, Expect, Never, See or Absent, e.g. "Expect (${role}): asks which homes it covers".`);
     }
     if (!section) throw Error(`Line ${n}: put "${m[1]}" under a "## Title" heading.`);
     const kind = m[1].toLowerCase();
     let pane = (m[2] || (kind === 'do' ? 'Main' : 'Role')).trim();
     if (/^role$/i.test(pane)) pane = role;
     if (/^main$/i.test(pane)) pane = 'Main';
-    if (section.setup && kind !== 'do') throw Error(`Line ${n}: the Before section only holds Do lines.`);
+    if (section.setup && kind !== 'do' && kind !== 'run') throw Error(`Line ${n}: the Before section only holds Do and Run lines.`);
+    if (kind === 'run' && !section.setup) throw Error(`Line ${n}: Run lines belong under "## Before"; the lab runs them before the first prompt.`);
+    if (kind === 'run') { section.lines.push({ kind, pane: 'lab', text: m[3].trim(), line: n }); continue; }
     const text = kind === 'see' || kind === 'absent' ? strip(m[3]) : m[3].trim();
     section.lines.push({ kind, pane, text, line: n });
   }
@@ -77,7 +80,7 @@ export function steps(item) { return item.lines.filter(l => l.kind === 'do'); }
 export function panes(spec, role) {
   const all = new Set();
   for (const l of [...spec.before, ...spec.items.flatMap(i => i.lines)]) all.add(l.pane);
-  all.delete('Main'); all.delete(role);
+  all.delete('Main'); all.delete(role); all.delete('lab');
   return [...all];
 }
 
@@ -101,6 +104,13 @@ export function locate(project, role) {
 }
 
 /** A custom role's job is the "## Job" section of role.md beside the expectations. */
+/** "Access: work" in role.md means the role changes files or runs commands, so the lab opens it with /role --work. */
+export function access(dir) {
+  const file = path.join(dir, 'role.md');
+  if (!fs.existsSync(file)) return 'read';
+  return /^Access:\s*work\b/im.test(fs.readFileSync(file, 'utf8')) ? 'work' : 'read';
+}
+
 export function job(dir) {
   const file = path.join(dir, 'role.md');
   if (!fs.existsSync(file)) return undefined;

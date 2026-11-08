@@ -58,7 +58,7 @@ export function newRolePrompt(cwd: string, role: string, job?: string): string {
 		.replaceAll('{{format}}', FORMAT.split('\n').map(l => '   ' + l).join('\n').replace(/^ {3}/, '   ~~~markdown\n   ') + '\n   ~~~')
 		.replaceAll('{{roleStep}}', starter
 			? `${role} needs no role.md; /role supplies its job. Skip to the lab.`
-			: `**Write the role** in \`${path.dirname(rel)}/role.md\`: \`# ${role}\`, then \`## Job\` (one paragraph telling the role what to do, under 2,400 characters; this is the only part /role receives), \`## Use it when\` (two bullets), and \`## Examples\` (two prompts someone types in Main, and what ${role} does). Then go straight to the lab.`);
+			: `**Write the role** in \`${path.dirname(rel)}/role.md\`: \`# ${role}\`, then \`## Job\` (one paragraph telling the role what to do, under 2,400 characters; this is the only part /role receives), \`## Use it when\` (two bullets), and \`## Examples\` (two prompts someone types in Main, and what ${role} does). If ${role} must change files or run commands, add the line \`Access: work\` under the title. Then go straight to the lab.`);
 }
 
 export default function herdrPiLab(pi: ExtensionAPI): void {

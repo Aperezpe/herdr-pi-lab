@@ -61,20 +61,25 @@ See (Main): "1 role note"
 | Line | Who decides |
 |---|---|
 | `Do (Main): …` / `Do (Critic): …` | The lab types it exactly, as a person would, then waits until Main and the role go quiet. `Do` lines under `## Before` run before the role opens. |
+| `Run: …` | Only under `## Before`. The lab runs this shell command itself in the project copy before the first prompt, to set up a case such as planting a bug. If it fails, the lab stops and says so. |
 | `Expect (…): …` | The Tester judges it from the screen and must quote the pane verbatim. The lab rejects a quote that isn't there. |
 | `Never (…): …` | Fails the expectation if it happened. |
 | `See (…): "…"` / `Absent (…): "…"` | The lab checks the exact text itself; the Tester can't overrule it. |
 
-`(Role)` means the role under test; a line without a pane means Main for Do and the role otherwise. Copy the [examples](examples/) into your project's `roles/` folder to start: `critic`, `notes`, `concierge` (a custom role) and `yesman`, a deliberately bad role whose report should fail.
+`(Role)` means the role under test; a line without a pane means Main for Do and the role otherwise. A role that changes files or runs commands (a Fixer, say) adds the line `Access: work` under the title of its `role.md`; the lab then opens it with `/role --work`, which gives the role write, edit and shell tools in the project copy (herdr-pi-role from 2026-11-08). Guest Main and other roles keep inspection tools only, so Main can't do the role's work for it.
+
+Copy the [examples](examples/) into your project's `roles/` folder to start: `critic`, `notes`, `concierge` (a custom role) and `yesman`, a deliberately bad role whose report should fail.
 
 ## What a lab is
 
 - **Its own Herdr:** a copy of your Herdr app with its own identity (`dev.herdr.lab`, named Herdr Lab), so macOS never confuses it with your everyday Herdr. It starts its own core (`HC_SESSION=lab-…`) and app home, with your Herdr look and keys.
 - **Its own Pi:** a scratch Pi profile that links to your model logins (`auth.json`, `models.json`) instead of copying them. Guest Main loads only the `/role` extension from your project, so other extensions don't change the result.
-- **A copy of your project:** tracked files only, without `.git`, `.pi`, secrets-looking files, `roles/` or any `expectations.md`, so the role can't read its own test.
+- **A copy of your project:** tracked files only, without `.git`, `.pi`, secrets-looking files, `roles/` or any `expectations.md`, so the role can't read its own test. The copy starts as a fresh repository with one commit, `Lab copy`.
 - **A Tester that can't look inside:** a separate Pi started with only the lab's tools: type an expectation's steps, read a guest pane, find text, record a verdict, finish. No file, shell or web tools.
 - **Reports:** `roles/<role>/reports/<time>-<run>.md` with every verdict, its quotes, the lab's own checks, the final screens and a screenshot of the lab window.
 - **Teardown:** `/lab stop` ends that lab's terminals, quits that window, stops that core and removes `~/.herdr-lab/<run>`. Nothing else is signaled.
+
+Set `HERDR_PI_LAB_BEHIND=1` to open every lab behind your windows, for unattended runs.
 
 Each lab run uses model tokens for guest Main, the role and the Tester. By default all three use the model of the conversation you start it from.
 

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { parse, locate, job as roleJob, slug, panes as extraPanes } from './expectations.mjs';
+import { parse, locate, job as roleJob, access as roleAccess, slug, panes as extraPanes } from './expectations.mjs';
 
 export const VERSION = '0.1.0';
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -148,7 +148,11 @@ function copyProject(project, dest) {
     mkdir(path.dirname(path.join(dest, f))); fs.copyFileSync(a, path.join(dest, f)); copied++;
   }
   spawnSync('git', ['init', '-q'], { cwd: dest });
-  return { copied, bytes, git: git.status === 0 };
+  // One commit, so roles that ask Git (which commit, what changed, git add) see a real repository.
+  const who = ['-c', 'user.name=Herdr Lab', '-c', 'user.email=lab@herdr.invalid', '-c', 'commit.gpgsign=false'];
+  spawnSync('git', ['add', '-A'], { cwd: dest });
+  const commit = spawnSync('git', [...who, 'commit', '-q', '--no-verify', '-m', 'Lab copy'], { cwd: dest });
+  return { copied, bytes, git: git.status === 0, commit: commit.status === 0 };
 }
 
 export function profile(agentDir) {
@@ -340,7 +344,9 @@ export async function start(o, progress = () => {}) {
     progress('Opening the Herdr Lab window');
     const vars = ['HC_SESSION', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'HERDR_APP_HOME', 'HERDR_APP_NO_SOUND', 'HERDR_TELEMETRY', 'PI_CODING_AGENT_DIR', 'PI_SKIP_VERSION_CHECK', 'HERDR_PI_LAB_RUN'];
     const e = env(id), log = path.join(d.logs, 'app.log');
-    if (a.bundle) run('/usr/bin/open', ['-n', ...(o.background ? ['-g'] : []), '-a', a.bundle, ...vars.flatMap(k => ['--env', `${k}=${e[k]}`]), '--stdout', log, '--stderr', log], { id });
+    // HERDR_PI_LAB_BEHIND=1 opens every lab behind your windows (for unattended runs and captures).
+    const behind = o.background || process.env.HERDR_PI_LAB_BEHIND === '1';
+    if (a.bundle) run('/usr/bin/open', ['-n', ...(behind ? ['-g'] : []), '-a', a.bundle, ...vars.flatMap(k => ['--env', `${k}=${e[k]}`]), '--stdout', log, '--stderr', log], { id });
     else { const fd = fs.openSync(log, 'a'); const { spawn } = await import('node:child_process'); spawn(a.bin, [], { env: e, detached: true, stdio: ['ignore', fd, fd] }).unref(); }
     // The first launch of a freshly signed copy can take a while for macOS to verify.
     await until(() => appJson(id, ['status'], { check: false, timeout: 5000 }), 120, 'the Herdr Lab window');
@@ -349,6 +355,8 @@ export async function start(o, progress = () => {}) {
     progress('Starting guest Main');
     const think = o.thinking ? ['--thinking', o.thinking] : [];
     // Guest Main reads but doesn't run commands or edit: the lab tests the role, not Main's coding.
+    // Guest Main stays read-only even for a work role: in one run a writable Main fixed the bug itself.
+    const work = roleAccess(loc.dir) === 'work';
     const mainTools = o.mainTools || 'read,grep,find,ls';
     const mainArgv = [...piBin, '--no-extensions', '-e', path.join(d.root, 'role-extension'), '--tools', mainTools, '--no-skills', '--no-prompt-templates', '--no-themes', '--name', 'Main', '--model', o.model, ...think];
     const space = appJson(id, ['do', 'space.new', JSON.stringify({ machine: '', name: `Lab · ${role}`, folder: d.project, argv: mainArgv })], { timeout: 20000 });
@@ -358,7 +366,16 @@ export async function start(o, progress = () => {}) {
     writeRun(id, { phase: 'main', terminals: { Main: main }, space: space.space });
     await piReady(id, main, 90);
 
-    for (const step of spec.before) {
+    // Run lines set up the copy (plant a bug, seed data) before Main's first prompt; the lab runs them itself, not a model.
+    const setup = [];
+    for (const step of spec.before.filter(s => s.kind === 'run')) {
+      progress(`Before: ${step.text.slice(0, 60)}`);
+      const r = spawnSync('/bin/sh', ['-c', step.text], { cwd: d.project, env: env(id), encoding: 'utf8', timeout: 120000 });
+      setup.push({ command: step.text, status: r.status, output: ((r.stdout || '') + (r.stderr || '')).slice(-2000) });
+      writeRun(id, { setup });
+      if (r.status !== 0) throw Error(`Before (line ${step.line}): "${step.text}" exited ${r.status ?? r.signal}: ${((r.stderr || r.stdout || '').trim().slice(-400)) || 'no output'}`);
+    }
+    for (const step of spec.before.filter(s => s.kind === 'do')) {
       if (step.pane !== 'Main') throw Error(`Before steps run in Main only (line ${step.line}).`);
       progress(`Before: ${step.text.slice(0, 60)}`);
       await type(id, main, step.text, [main], { quiet: 2 });
@@ -367,7 +384,8 @@ export async function start(o, progress = () => {}) {
     progress(`Opening ${role} with /role`);
     const known = new Set(windowPanes(id).map(p => p.terminal));
     // Roles are quick visual support and default to a fast model in /role (John, 2026-11-07); test them on what people will use.
-    const cmd = `/role ${role} --model ${o.roleModel || 'fast'}${customJob ? ' ' + customJob : ''}`;
+    // A role whose role.md says "Access: work" changes files or runs commands, so it opens with --work.
+    const cmd = `/role ${work ? '--work ' : ''}${role} --model ${o.roleModel || 'fast'}${customJob ? ' ' + customJob : ''}`;
     hc(id, ['send', main, cmd, '--json'], { timeout: 20000 });
     const opened = await until(() => windowPanes(id).find(p => !known.has(p.terminal)), 60, `the ${role} pane (check guest Main for an error)`);
     hc(id, ['label', opened.terminal, `lab.pane=${role}`], { check: false });

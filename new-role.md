@@ -12,6 +12,7 @@ Work in this order and keep each message short:
    - Write 2–4 expectations. Each one is a short title and the steps a person would type, followed by what must (Expect) and must not (Never) happen on screen. Use See/Absent only for exact text the lab can check by itself.
    - The pane in parentheses is Main or {{role}}. Do lines are typed verbatim into that pane; most belong in Main. Write them as a person would type them. A role watches Main: new prompts in Main reach it.
    - Say what the role should do, never how its prompt should be worded. The tester never sees the prompt.
+   - Guest Main can only read files. To set up a case (plant a bug, change data), put `Run: <shell command>` under `## Before`; the lab runs it in the project copy before the first prompt.
    - Show me the file and wait for my OK before going on.
 3. {{roleStep}}
 4. **Run the lab** once every file is saved (a separate step, never in the same batch as a write): call the `lab` tool with `{"action":"test","role":"{{role}}"}`, then `{"action":"wait","run":"<run ID>"}` until it finishes. The Herdr Lab window shows the run.

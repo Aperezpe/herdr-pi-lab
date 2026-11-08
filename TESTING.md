@@ -43,6 +43,22 @@ In a Herdr Lab window running Pi with this extension, in a RentAPlace copy: `/la
 
 After `/role` switched to a verdict plus numbered emoji findings and a fast default, the lab opens roles with `--model fast`. Critic with a fourth expectation (`/role send main #1` delivers exactly one finding): 4 of 4 Haiku runs passed after the Critic stopped listing ✅ "settled" items, which had led it to endorse Main's assumed default (2 of 4 runs failed before). Notes passed 3/3. One run through the new default (`--model fast`) passed 4/4.
 
+## `/lab new` for seven course roles (2026-11-08)
+
+Each run: a Herdr Lab window running Pi (host `anthropic/claude-opus-5-5`, high thinking) with this extension, in a fresh RentAPlace clone (`09e01d2`), started by `scripts/capture.mjs` with `HERDR_PI_LAB_BEHIND=1`. Every lab opened the role on `/role`'s fast default (Haiku); guest Main and the Tester used the host's model. The operator's replies ("Yes to all three.", "OK, go ahead.", the follow-ups below) were typed by the production agent through `capture.mjs send`. Screens, pane text, host transcripts and every report are in the course repository's `.notes/herdr-pi-lab-captures/lab-new-<role>/`.
+
+| Role | Runs | What happened |
+|---|---|---|
+| op (performance) | 3/3, then 4/4 | Passed first time. The operator added a fourth expectation (never state unchecked facts about the code); writing it, the host found op's own Job recommended an index that already exists in `db/migrations/001-core.sql`, removed it and told op to check and name the file or say "unverified". |
+| ci-watch | 1/3, then 3/3 | Run 1: a 🔴 icon before "unknown" read as a confirmed red (Job fixed: plain text, never repeat red/green unchecked); the hash check failed because the lab copy had no commit (expectation corrected with the operator's OK). Only the "unknown" path was exercised: no commits, `gh` not logged in. |
+| Scribe | 2/4, 2/4, then 4/4 | Scribe had no way to know today's date. Run 2's fix (ask for the date) made it refuse to write. With the operator's OK the prompts now give the date and the Job says "undated" otherwise. |
+| phone | 4/4, then 4/4 | Passed, but a "nothing needed" note still showed. The operator raised the bar (show nothing at all); the Job changed to an empty reply and passed. |
+| repro | 4/4, then 5/5 | Passed, but its first heading said "reproduced" though it ran nothing. The operator added that as an expectation; it passed. |
+| pm | 3/3 | Passed first time. |
+| Fixer (work role) | 2/3, 2/3, 1/3, 2/3, 2/3, then 3/3 | The Fixer's job is the first that changes files, and each run found a harness gap, not a Job problem: guest Main couldn't plant the bug and Fixer had no shell (`Run:` lines and `Access: work` added); `/role --work` only lent tools Main had (Main is read-only); given write tools, guest Main fixed the bug itself and then said it hadn't (Main read-only again; `/role --work` now grants write/edit/bash itself, herdr-pi-role); the fix matched HEAD so nothing could be staged (setup now commits the planted bug). Run 6 passed: Fixer fixed `pricing.ts`, quoted the test's pass line, staged that file and stopped. |
+
+Also found: `/reload` re-reads `index.ts` but keeps already-imported `.mjs` modules, so after changing `core.mjs` or `expectations.mjs` the running `lab` tool kept the old parser; restart Pi, or use `node lab.mjs`, after changing them. After every role, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"sockets":[]}`.
+
 ## Teardown
 
 After every batch, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"sockets":[]}`, and no Herdr Lab process remained. The everyday Herdr core was never addressed: every hc call runs with `HC_SESSION=lab-…` and the lab's own state folder.
@@ -51,4 +67,5 @@ After every batch, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"
 
 - Linux and Windows. Herdr versions other than 0.1.13.
 - `/lab` typed into a Pi in your everyday Herdr. The same command ran from a Pi inside a lab window, and the CLI runs were started from a pane of the everyday Herdr with its `HC_*` variables set.
-- Several runs of the same expectations to measure how often a role passes.
+- Several runs of the same expectations to measure how often a role passes (only the Critic has 5 of 5).
+- A work role's lab against a real CI provider or a project with history: the copy is one `Lab copy` commit.
