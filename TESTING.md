@@ -43,7 +43,7 @@ In a Herdr Lab window running Pi with this extension, in a RentAPlace copy: `/la
 
 After `/role` switched to a verdict plus numbered emoji findings and a fast default, the lab opens roles with `--model fast`. Critic with a fourth expectation (`/role send main #1` delivers exactly one finding): 4 of 4 Haiku runs passed after the Critic stopped listing ✅ "settled" items, which had led it to endorse Main's assumed default (2 of 4 runs failed before). Notes passed 3/3. One run through the new default (`--model fast`) passed 4/4.
 
-## `/lab new` for seven course roles (2026-11-08)
+## `/lab new` for nine course roles (2026-11-08)
 
 Each run: a Herdr Lab window running Pi (host `anthropic/claude-opus-5-5`, high thinking) with this extension, in a fresh RentAPlace clone (`09e01d2`), started by `scripts/capture.mjs` with `HERDR_PI_LAB_BEHIND=1`. Every lab opened the role on `/role`'s fast default (Haiku); guest Main and the Tester used the host's model. The operator's replies ("Yes to all three.", "OK, go ahead.", the follow-ups below) were typed by the production agent through `capture.mjs send`. Screens, pane text, host transcripts and every report are in the course repository's `.notes/herdr-pi-lab-captures/lab-new-<role>/`.
 
@@ -55,6 +55,8 @@ Each run: a Herdr Lab window running Pi (host `anthropic/claude-opus-5-5`, high 
 | phone | 4/4, then 4/4 | Passed, but a "nothing needed" note still showed. The operator raised the bar (show nothing at all); the Job changed to an empty reply and passed. |
 | repro | 4/4, then 5/5 | Passed, but its first heading said "reproduced" though it ran nothing. The operator added that as an expectation; it passed. |
 | pm | 3/3 | Passed first time. |
+| Research (starter role with a new `role.md`) | 1/3, then 3/3 | Traced the planted overlap bug to `bookings.ts:16` both times, but run 1 said the fix "must come from Main or a role with write access" instead of naming Booking; the Job now requires a closing "Hand to Booking:" line. |
+| Booking (work role) | 0/3, 0/3, then 3/3 | Fixed and staged only `bookings.ts` every time; the expectations wrongly required it to tell Main, which a watching role can't ("Observing Main cannot send to Main"). Expect lines now judge its own pane. |
 | Fixer (work role) | 2/3, 2/3, 1/3, 2/3, 2/3, then 3/3 | The Fixer's job is the first that changes files, and each run found a harness gap, not a Job problem: guest Main couldn't plant the bug and Fixer had no shell (`Run:` lines and `Access: work` added); `/role --work` only lent tools Main had (Main is read-only); given write tools, guest Main fixed the bug itself and then said it hadn't (Main read-only again; `/role --work` now grants write/edit/bash itself, herdr-pi-role); the fix matched HEAD so nothing could be staged (setup now commits the planted bug). Run 6 passed: Fixer fixed `pricing.ts`, quoted the test's pass line, staged that file and stopped. |
 
 Also found: `/reload` re-reads `index.ts` but keeps already-imported `.mjs` modules, so after changing `core.mjs` or `expectations.mjs` the running `lab` tool kept the old parser; restart Pi, or use `node lab.mjs`, after changing them. After every role, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"sockets":[]}`.
