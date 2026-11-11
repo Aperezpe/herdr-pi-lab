@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 import { CombinedAutocompleteProvider } from '@earendil-works/pi-tui';
-import { labCompletions, labHelp, labHint } from '../guidance.ts';
+import { labCompletions, labHelp, labHint, suggestPrompt } from '../guidance.ts';
 
 const roles = () => ['Critic', 'Concierge'];
 
 test('a space after /lab lists every example, ending with --help', () => {
 	const items = labCompletions('', roles)!;
-	expect(items.map(i => i.value)).toEqual(['new Concierge', 'test Critic', 'new Critic', 'list', 'stop', 'report Critic', 'doctor', '--help']);
+	expect(items.map(i => i.value)).toEqual(['new Concierge', 'test Critic', 'new Critic', 'suggest', 'list', 'stop', 'report Critic', 'doctor', '--help']);
 });
 
 test('subcommands complete, then role names, then test flags', () => {
@@ -40,4 +40,19 @@ test('dim hints describe the next argument, only for single-line /lab', () => {
 test('help shows the examples and the expectation format', () => {
 	const h = labHelp();
 	for (const s of ['/lab new Concierge', '/lab test Critic', 'Do (Main):', 'Expect (Critic):', 'roles/<role>/expectations.md', '/lab stop']) expect(h).toContain(s);
+});
+
+test('/lab suggest completes, hints, keeps free-form focus, and is in the guide', () => {
+	expect(labCompletions('su', roles)!.map(i => i.value)).toEqual(['suggest']);
+	expect(labCompletions('suggest guest support', roles)).toBeNull();
+	expect(labHint('/lab suggest')).toContain('build nothing');
+	expect(labHint('/lab suggest guest support')).toBe('Enter: propose roles for this');
+	expect(labHelp()).toContain('/lab suggest');
+});
+
+test('the suggest brief names existing roles, asks for a source and a /lab new line, and builds nothing', () => {
+	const p = suggestPrompt(['Critic', 'ci-watch'], 'guest support');
+	for (const s of ['looking at: “guest support”', 'Critic, ci-watch', "Don't build anything", 'No source, no suggestion', '/lab new <Name>', 'at most three']) expect(p).toContain(s);
+	expect(suggestPrompt([])).toContain('none yet');
+	expect(suggestPrompt([])).not.toContain('{{');
 });

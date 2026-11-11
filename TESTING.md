@@ -71,3 +71,7 @@ After every batch, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"
 - `/lab` typed into a Pi in your everyday Herdr. The same command ran from a Pi inside a lab window, and the CLI runs were started from a pane of the everyday Herdr with its `HC_*` variables set.
 - Several runs of the same expectations to measure how often a role passes (only the Critic has 5 of 5).
 - A work role's lab against a real CI provider or a project with history: the copy is one `Lab copy` commit.
+
+## /lab suggest (2026-11-11)
+
+First real run: Pi 1.5.0 in RPC mode, `/lab suggest` sent as the prompt, in a fresh RentAPlace clone holding six roles (booking, ci-watch, fixer, pm, repro, research) and their Lab reports. Main made 43 read-only tool calls in 42 seconds and proposed two roles (ReplayRunner, FixRouter), each with cited report lines and a `/lab new` line; it built nothing. The cited Fixer lines were checked by hand. Not exercised: the command typed in a Herdr window (its one-line card and the dim hint are covered by unit tests only), and a project with customer feedback or a working conversation. In this run the “friction” came from what roles handed back inside Lab tests.

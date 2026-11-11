@@ -3,14 +3,17 @@
 import { CustomEditor, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { type AutocompleteItem, CURSOR_MARKER, stripTerminalSequences, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
-export const LAB_USAGE = '/lab new|test|list|stop|report|doctor [Role]';
+import fs from 'node:fs';
+
+export const LAB_USAGE = '/lab new|test|suggest|list|stop|report|doctor [Role]';
 export const STARTERS = ['Critic', 'Notes', 'Research'];
-export const SUBCOMMANDS = ['new', 'test', 'list', 'stop', 'report', 'doctor'];
+export const SUBCOMMANDS = ['new', 'test', 'suggest', 'list', 'stop', 'report', 'doctor'];
 
 const examples: AutocompleteItem[] = [
 	{ value: 'new Concierge', label: 'new Concierge', description: 'Grow a new role: expectations first, then the role' },
 	{ value: 'test Critic', label: 'test Critic', description: 'Check a role from outside against its expectations' },
 	{ value: 'new Critic', label: 'new Critic', description: 'Write expectations for a starter role' },
+	{ value: 'suggest', label: 'suggest', description: 'Propose roles from this project\'s own friction; builds nothing' },
 	{ value: 'list', label: 'list', description: 'Labs on this computer and their results' },
 	{ value: 'stop', label: 'stop', description: 'Close the last lab: window, core and scratch files' },
 	{ value: 'report Critic', label: 'report Critic', description: 'Show the latest report for a role' },
@@ -37,6 +40,7 @@ export function labHelp(shortcut?: string): string {
 		'  See (Main): "exact text"      Absent (Main): "exact text"',
 		'Do lines are typed exactly as written. Expect and Never are judged by the Tester, which must quote the screen. See and Absent are checked by the lab itself.',
 		'',
+		'/lab suggest reads this conversation, your roles\' reports and the project\'s records, and proposes up to three roles you don\'t have, each with where it saw the friction and the /lab new line that starts it. It builds nothing.',
 		'/lab new asks a few questions, writes the expectations for you to approve, then writes role.md and runs the lab until the role passes or needs you. /lab test runs the same check again after you change the role or its expectations.',
 		'Reports: roles/<role>/reports/<time>-<run>.md with a screenshot. The lab stays open so you can look; /lab stop closes it.',
 		'Models: guest Main uses this conversation\'s model unless you pass --model. The role opens on /role\'s fast default (Haiku), as it would for you, unless --role-model provider/id (or main). The Tester uses Main\'s model unless --tester-model. Each lab run costs model tokens.',
@@ -54,7 +58,7 @@ export function labCompletions(prefix: string, roles: () => string[] = () => STA
 	const [sub, ...rest] = prefix.split(' ');
 	if (!rest.length) {
 		const hits = examples.filter(e => e.value.startsWith(prefix.toLowerCase()) && e.value !== prefix);
-		const subs = SUBCOMMANDS.filter(s => s.startsWith(prefix.toLowerCase()) && s !== prefix).map(s => ({ value: s + (['list', 'doctor', 'stop'].includes(s) ? '' : ' '), label: s, description: examples.find(e => e.value.startsWith(s))!.description }));
+		const subs = SUBCOMMANDS.filter(s => s.startsWith(prefix.toLowerCase()) && s !== prefix).map(s => ({ value: s + (['list', 'doctor', 'stop', 'suggest'].includes(s) ? '' : ' '), label: s, description: examples.find(e => e.value.startsWith(s))!.description }));
 		return subs.length ? subs : hits.length ? hits : null;
 	}
 	const arg = rest.join(' ');
@@ -90,6 +94,7 @@ export function labHint(text: string): string | undefined {
 		case 'test': return !arg ? '<Role> [--model provider/id] · Tab: roles with expectations' : /--(tester-|role-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
 		case 'report': return !arg ? '<Role> · its latest report' : 'Enter: show the report';
 		case 'stop': return !arg ? '[run ID | all] · default: the last lab you started' : 'Enter: close it';
+		case 'suggest': return !arg ? '[what to look at] · Enter: propose up to three roles, build nothing' : 'Enter: propose roles for this';
 		case 'list': return 'Enter: labs on this computer';
 		case 'doctor': return 'Enter: check before your first lab';
 		default: return SUBCOMMANDS.some(s => s.startsWith(sub)) ? 'Tab: complete the command' : `Unknown. Try ${LAB_USAGE}`;
@@ -135,4 +140,12 @@ export function installLabGuidance(ctx: ExtensionContext, roles: () => string[])
 		};
 		return editor;
 	});
+}
+
+/** /lab suggest: Main reads the project's own friction and proposes roles it doesn't have yet. Nothing is built. */
+export function suggestPrompt(existing: string[], focus?: string): string {
+	const template = fs.readFileSync(new URL('./suggest.md', import.meta.url), 'utf8');
+	return template
+		.replaceAll('{{focusLine}}', focus ? `, looking at: “${focus}”` : '')
+		.replaceAll('{{existing}}', existing.length ? existing.join(', ') : 'none yet');
 }

@@ -6,10 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as core from './core.mjs';
 import { FORMAT, locate, slug } from './expectations.mjs';
-import { installLabGuidance, labCompletions, labHelp, LAB_USAGE, STARTERS } from './guidance.ts';
+import { installLabGuidance, labCompletions, labHelp, LAB_USAGE, STARTERS, suggestPrompt } from './guidance.ts';
 
 const MSG = 'herdr-pi-lab';
 const NEW = 'herdr-pi-lab.new';
+const SUGGEST = 'herdr-pi-lab.suggest';
 const MARK: Record<string, string> = { pass: '✓', fail: '✗', running: '◐', pending: '○' };
 
 /** Roles in this project that already have expectations, for completion and /lab list. */
@@ -81,6 +82,13 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			const steps = theme.fg('dim', 'interview → expectations → ' + (d.starter ? '' : 'role.md → ') + 'lab → report   (ctrl+o: full brief)');
 			return [head, ...job, steps].map(l => truncateToWidth(' '.repeat(pad) + l, width));
 		} };
+	});
+	pi.registerMessageRenderer(SUGGEST, (msg: any, opts: any, theme: any) => {
+		const pad = opts.outputPad ?? 1, d = msg.details || {};
+		const head = theme.fg('accent', theme.bold('Herdr Lab · suggest roles')) + theme.fg('dim', d.focus ? `  ·  “${d.focus}”` : '');
+		if (opts.expanded) { const md = new Markdown(String(msg.content), pad, 0, getMarkdownTheme()); return { invalidate() { md.invalidate(); }, render(w: number) { return [truncateToWidth(' '.repeat(pad) + head, w), ...md.render(w)]; } }; }
+		const steps = theme.fg('dim', 'this conversation → role reports → project records → up to three roles, nothing built   (ctrl+o: full brief)');
+		return { invalidate() {}, render(width: number) { return [head, steps].map(l => truncateToWidth(' '.repeat(pad) + l, width)); } };
 	});
 	pi.on('session_start', (_e, ctx) => { ctxRef = ctx; installLabGuidance(ctx, () => projectRoles(ctx.cwd)); });
 	pi.on('session_shutdown', () => { for (const t of watching.values()) clearInterval(t); watching.clear(); });
@@ -171,6 +179,12 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 				const job = args.join(' ') || undefined;
 				if (!ctx.isIdle()) throw Error('Wait for this turn to finish, then run /lab new again.');
 				pi.sendMessage({ customType: NEW, content: newRolePrompt(ctx.cwd, role, job), display: true, details: { role, job, starter: STARTERS.some(s => s.toLowerCase() === role.toLowerCase()) } }, { triggerTurn: true });
+				return;
+			}
+			if (sub === 'suggest') {
+				const focus = args.join(' ') || undefined;
+				if (!ctx.isIdle()) throw Error('Wait for this turn to finish, then run /lab suggest again.');
+				pi.sendMessage({ customType: SUGGEST, content: suggestPrompt(projectRoles(ctx.cwd), focus), display: true, details: { focus } }, { triggerTurn: true });
 				return;
 			}
 			throw Error(`Unknown /lab command "${sub}". Usage: ${LAB_USAGE}. /lab --help shows examples.`);

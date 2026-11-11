@@ -27,6 +27,8 @@ Type `/lab` and a space: Pi lists examples. Use **↑/↓** and **Tab** to inser
 | `/lab new Concierge` | Grow a new role: a short interview, expectations for you to approve, then `role.md`, then the lab until it passes. |
 | `/lab new Concierge Look after guests` | Same, starting from a one-line job. |
 | `/lab new Critic` | Write expectations for a starter role (`Critic`, `Notes`, `Research`). |
+| `/lab suggest` | Propose up to three roles this project doesn't have, from its own friction: this conversation, your roles' reports, issues and recent commits. Each comes with where the friction was seen and the `/lab new` line that starts it. Builds nothing. |
+| `/lab suggest guest support` | Same, looking at one area. |
 | `/lab test Critic` | Check a role from outside against `roles/critic/expectations.md`. Tab completes the roles that have expectations. |
 | `/lab test Critic --model anthropic/claude-haiku-5-5` | Choose the model for guest Main and the role. `--tester-model` chooses the judge; `--behind` opens the window behind yours. |
 | `/lab report Critic` | The latest report for a role, in this conversation. |
