@@ -15,5 +15,5 @@ Expect (Main): shows nothing YesMan wrote; Main has only the prompts, its own re
 Never (Main): quotes or answers YesMan's question
 
 ## Only an explicit send reaches Main
-Do (YesMan): /role send main Which homes should it cover?
+Do (YesMan): /agent send main Which homes should it cover?
 Expect (Main): shows one note from YesMan waiting, without starting a new reply

@@ -9,7 +9,7 @@ test('a space after /lab lists every example, ending with --help', () => {
 	expect(items.map(i => i.value)).toEqual(['new Concierge', 'test Critic', 'new Critic', 'suggest', 'list', 'stop', 'report Critic', 'doctor', '--help']);
 });
 
-test('subcommands complete, then role names, then test flags', () => {
+test('subcommands complete, then agent names, then test flags', () => {
 	expect(labCompletions('te', roles)!.map(i => i.value)).toEqual(['test ']);
 	expect(labCompletions('test ', roles)!.map(i => i.value)).toEqual(['test Critic ', 'test Concierge ']);
 	expect(labCompletions('test C', roles)![0].label).toBe('Keep what I typed');
@@ -21,7 +21,7 @@ test('free-form text and finished commands are never replaced', () => {
 	for (const p of ['new Concierge Look after guests', 'test Critic --model anthropic/claude', 'list', '--help', 'stop lab-123abc']) expect(labCompletions(p, roles)).toBeNull();
 });
 
-test('accepting a role completion through the native provider leaves a runnable command', async () => {
+test('accepting an agent completion through the native provider leaves a runnable command', async () => {
 	const native = new CombinedAutocompleteProvider([{ name: 'lab', getArgumentCompletions: (p: string) => labCompletions(p, roles) }]);
 	const line = '/lab test ';
 	const s = await native.getSuggestions([line], 0, line.length, { signal: new AbortController().signal });
@@ -31,7 +31,7 @@ test('accepting a role completion through the native provider leaves a runnable 
 
 test('dim hints describe the next argument, only for single-line /lab', () => {
 	expect(labHint('/lab')).toContain('Space: examples');
-	expect(labHint('/lab new ')).toContain('<Role>');
+	expect(labHint('/lab new ')).toContain('<Agent>');
 	expect(labHint('/lab test Critic --model ')).toBe('provider/id');
 	expect(labHint('/lab test Critic')).toContain('Enter: run the lab');
 	for (const t of ['', '/labs', 'run /lab', '/lab\nmore']) expect(labHint(t)).toBeUndefined();
@@ -39,18 +39,18 @@ test('dim hints describe the next argument, only for single-line /lab', () => {
 
 test('help shows the examples and the expectation format', () => {
 	const h = labHelp();
-	for (const s of ['/lab new Concierge', '/lab test Critic', 'Do (Main):', 'Expect (Critic):', 'roles/<role>/expectations.md', '/lab stop']) expect(h).toContain(s);
+	for (const s of ['/lab new Concierge', '/lab test Critic', 'Do (Main):', 'Expect (Critic):', 'agents/<agent>/expectations.md', '/lab stop']) expect(h).toContain(s);
 });
 
 test('/lab suggest completes, hints, keeps free-form focus, and is in the guide', () => {
 	expect(labCompletions('su', roles)!.map(i => i.value)).toEqual(['suggest']);
 	expect(labCompletions('suggest guest support', roles)).toBeNull();
 	expect(labHint('/lab suggest')).toContain('build nothing');
-	expect(labHint('/lab suggest guest support')).toBe('Enter: propose roles for this');
+	expect(labHint('/lab suggest guest support')).toBe('Enter: propose agents for this');
 	expect(labHelp()).toContain('/lab suggest');
 });
 
-test('the suggest brief names existing roles, asks for a source and a /lab new line, and builds nothing', () => {
+test('the suggest brief names existing agents, asks for a source and a /lab new line, and builds nothing', () => {
 	const p = suggestPrompt(['Critic', 'ci-watch'], 'guest support');
 	for (const s of ['looking at: “guest support”', 'Critic, ci-watch', "Don't build anything", 'No source, no suggestion', '/lab new <Name>', 'at most three']) expect(p).toContain(s);
 	expect(suggestPrompt([])).toContain('none yet');

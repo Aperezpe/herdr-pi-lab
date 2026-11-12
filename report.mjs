@@ -1,4 +1,4 @@
-// The lab report: Markdown beside the role's expectations, plus a screenshot of the lab window.
+// The lab report: Markdown beside the agent's expectations, plus a screenshot of the lab window.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as core from './core.mjs';
@@ -22,7 +22,7 @@ export function writeReport(id, { summary, screens }) {
     '',
     summary,
     '',
-    `Role: \`${run.command || '/role ' + run.role}\`${run.customJob ? ' (job from role.md)' : ' (starter role)'} · Guest model: \`${run.model}\` · Tester model: \`${run.testerModel}\``,
+    `Role: \`${run.command || '/agent ' + run.role}\`${run.customJob ? ' (job from agent.md)' : ' (starter agent)'} · Guest model: \`${run.model}\` · Tester model: \`${run.testerModel}\``,
     `Expectations: \`${path.relative(run.project, run.expectations)}\``,
     '',
   ];

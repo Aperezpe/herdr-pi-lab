@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Capture a real /lab session for lessons: open a Herdr Lab window running Pi with /lab and /role
+// Capture a real /lab session for lessons: open a Herdr Lab window running Pi with /lab and /agent
 // in PROJECT (a throwaway checkout you own), type into it, wait, and save window shots and pane text.
 //   node scripts/capture.mjs open PROJECT [--model provider/id] [--thinking level]  → {"id","terminal"}
 //   node scripts/capture.mjs send ID TEXT            type one line into Main, as a person would

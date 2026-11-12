@@ -1,5 +1,7 @@
 # How Herdr Pi Lab was tested
 
+> Runs below predate 2026-11-11, when `/role` became `/agent`, `roles/<role>/role.md` became `agents/<agent>/agent.md` and `--role-model` became `--agent-model`. They are kept as they were typed. The old names still work.
+
 Every run below was real: a real Herdr Lab window (Herdr app 0.1.13 copied as `dev.herdr.lab`), hc 0.1.18, Pi 1.5.0 and real models. Nothing was mocked. macOS only so far; Linux is untested.
 
 ## Roles tested with `lab.mjs test … --wait` (2026-11-07)

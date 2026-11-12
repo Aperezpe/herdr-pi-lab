@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs';
-import { parse, contains, judged, observed, steps, job, access, panes } from '../expectations.mjs';
+import { parse, contains, judged, observed, steps, job, access, panes, locate } from '../expectations.mjs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -14,9 +14,9 @@ test('the Critic example parses into a Before step and three expectations', () =
 	expect(judged(s.items[0]).map((l: any) => l.kind)).toEqual(['expect', 'never']);
 });
 
-test('Role means the role under test; See/Absent keep exact quoted text', () => {
-	const s = parse('## A\nDo: hi\nSee (Role): "1 role note"\nAbsent (main): “secret”', 'Notes');
-	expect(observed(s.items[0])).toMatchObject([{ kind: 'see', pane: 'Notes', text: '1 role note' }, { kind: 'absent', pane: 'Main', text: 'secret' }]);
+test('Agent means the agent under test; See/Absent keep exact quoted text', () => {
+	const s = parse('## A\nDo: hi\nSee (Agent): "1 agent note"\nAbsent (main): “secret”', 'Notes');
+	expect(observed(s.items[0])).toMatchObject([{ kind: 'see', pane: 'Notes', text: '1 agent note' }, { kind: 'absent', pane: 'Main', text: 'secret' }]);
 });
 
 test('mistakes name the line and say how to fix them', () => {
@@ -35,7 +35,7 @@ test('screen matching ignores wrapping, case and punctuation, not words', () => 
 	expect(contains(screen, '   ')).toBe(false);
 });
 
-test('a custom role takes its job from role.md ## Job', () => {
+test('a custom agent takes its job from agent.md ## Job', () => {
 	expect(job(new URL('../examples/concierge', import.meta.url).pathname)).toMatch(/^You look after RentAPlace's guests\..*Never change files\.$/);
 	expect(job('/nonexistent')).toBeUndefined();
 });
@@ -46,12 +46,22 @@ test('Run lines in Before are setup for the lab, typed by no one', () => {
 	expect([...panes(s, 'Fixer')]).toEqual([]);
 });
 
-test('Access: work in role.md opens the role with workspace tools', () => {
+test('Access: work in agent.md opens the agent with workspace tools', () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-access-'));
 	expect(access(dir)).toBe('read');
-	fs.writeFileSync(path.join(dir, 'role.md'), '# Fixer\nAccess: work\n\n## Job\nFix the named file.\n');
+	fs.writeFileSync(path.join(dir, 'agent.md'), '# Fixer\nAccess: work\n\n## Job\nFix the named file.\n');
 	expect(access(dir)).toBe('work');
 	expect(job(dir)).toBe('Fix the named file.');
-	fs.writeFileSync(path.join(dir, 'role.md'), '# Notes\n\n## Job\nKeep notes. Access: work is not a line here.\n');
+	fs.writeFileSync(path.join(dir, 'agent.md'), '# Notes\n\n## Job\nKeep notes. Access: work is not a line here.\n');
 	expect(access(dir)).toBe('read');
+});
+
+test('the old names still work: (Role), roles/<name>/ and role.md', () => {
+	const s = parse('## A\nDo: hi\nSee (Role): "ok"', 'Notes');
+	expect(observed(s.items[0])).toMatchObject([{ kind: 'see', pane: 'Notes', text: 'ok' }]);
+	const d = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-old-'));
+	fs.mkdirSync(path.join(d, 'roles/notes'), { recursive: true }); fs.writeFileSync(path.join(d, 'roles/notes/expectations.md'), '# Notes expectations\n'); fs.writeFileSync(path.join(d, 'roles/notes/role.md'), '# Notes\n## Job\nKeep notes.\n');
+	const loc = locate(d, 'Notes'); expect(loc.missing).toBeUndefined(); expect(job(loc.dir)).toBe('Keep notes.');
+	expect(locate(d, 'Critic').file).toBe(path.join(d, 'agents/critic/expectations.md'));
+	fs.rmSync(d, { recursive: true });
 });

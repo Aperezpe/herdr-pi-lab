@@ -1,4 +1,4 @@
-// Herdr Pi Lab: /lab grows and tests roles in a private Herdr with a built-in Black-box tester.
+// Herdr Pi Lab: /lab grows and tests agents in a private Herdr with a built-in Black-box tester.
 import { getMarkdownTheme, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Markdown, Text, truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
@@ -13,10 +13,10 @@ const NEW = 'herdr-pi-lab.new';
 const SUGGEST = 'herdr-pi-lab.suggest';
 const MARK: Record<string, string> = { pass: '✓', fail: '✗', running: '◐', pending: '○' };
 
-/** Roles in this project that already have expectations, for completion and /lab list. */
+/** Agents in this project that already have expectations, for completion and /lab list. */
 export function projectRoles(cwd: string): string[] {
 	const out: string[] = [];
-	for (const dir of ['roles', 'agents']) {
+	for (const dir of ['agents', 'roles']) {
 		const root = path.join(cwd, dir);
 		if (!fs.existsSync(root)) continue;
 		for (const n of fs.readdirSync(root)) if (fs.existsSync(path.join(root, n, 'expectations.md'))) out.push(titleOf(path.join(root, n), n));
@@ -28,22 +28,24 @@ function titleOf(dir: string, fallback: string) {
 	return fallback[0].toUpperCase() + fallback.slice(1);
 }
 
+const VALUE_FLAGS: Record<string, string> = { '--model': 'model', '--agent-model': 'roleModel', '--tester-model': 'testerModel', '--agent-extension': 'roleExtension', '--thinking': 'thinking' };
 export function parseTest(args: string[]) {
 	const o: Record<string, any> = { role: '' };
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
-		if (a === '--model' || a === '--role-model' || a === '--tester-model' || a === '--role-extension' || a === '--thinking') { const v = args[++i]; if (!v) throw Error(`${a} needs a value.`); o[a.slice(2).replace(/-(\w)/g, (_, c) => c.toUpperCase())] = v; }
+		const flag = a === '--role-model' ? '--agent-model' : a === '--role-extension' ? '--agent-extension' : a; // --role-* were the names until 2026-11-11
+		if (VALUE_FLAGS[flag]) { const v = args[++i]; if (!v) throw Error(`${flag} needs a value.`); o[VALUE_FLAGS[flag]] = v; }
 		else if (a === '--behind') o.background = true;
 		else if (a.startsWith('--')) throw Error(`Unknown option ${a}. Try /lab --help.`);
 		else if (!o.role) o.role = a;
-		else throw Error(`Unexpected "${a}". Usage: /lab test <Role> [--model provider/id].`);
+		else throw Error(`Unexpected "${a}". Usage: /lab test <Agent> [--model provider/id].`);
 	}
-	if (!o.role) throw Error('Which role? e.g. /lab test Critic');
+	if (!o.role) throw Error('Which agent? e.g. /lab test Critic');
 	return o;
 }
 
 export function newRolePrompt(cwd: string, role: string, job?: string): string {
-	const template = fs.readFileSync(new URL('./new-role.md', import.meta.url), 'utf8');
+	const template = fs.readFileSync(new URL('./new-agent.md', import.meta.url), 'utf8');
 	const starter = STARTERS.some(s => s.toLowerCase() === role.toLowerCase());
 	const loc = locate(cwd, role);
 	const rel = path.relative(cwd, loc.file);
@@ -52,14 +54,14 @@ export function newRolePrompt(cwd: string, role: string, job?: string): string {
 		.replaceAll('{{role}}', role)
 		.replaceAll('{{jobLine}}', job ? `: “${job}”` : '')
 		.replaceAll('{{starterLine}}', [
-			starter ? `${role} is a starter role that /role already knows, so only its expectations are new.` : `${role} is a new role. It will live in \`${path.dirname(rel)}/\`.`,
+			starter ? `${role} is a starter agent that /agent already knows, so only its expectations are new.` : `${role} is a new agent. It will live in \`${path.dirname(rel)}/\`.`,
 			exists ? `\`${rel}\` already exists: read it first and propose changes instead of starting over.` : '',
 		].filter(Boolean).join(' '))
 		.replaceAll('{{expectationsPath}}', rel)
 		.replaceAll('{{format}}', FORMAT.split('\n').map(l => '   ' + l).join('\n').replace(/^ {3}/, '   ~~~markdown\n   ') + '\n   ~~~')
 		.replaceAll('{{roleStep}}', starter
-			? `${role} needs no role.md; /role supplies its job. Skip to the lab.`
-			: `**Write the role** in \`${path.dirname(rel)}/role.md\`: \`# ${role}\`, then \`## Job\` (one paragraph telling the role what to do, under 2,400 characters; this is the only part /role receives), \`## Use it when\` (two bullets), and \`## Examples\` (two prompts someone types in Main, and what ${role} does). If ${role} must change files or run commands, add the line \`Access: work\` under the title. Then go straight to the lab.`);
+			? `${role} needs no agent.md; /agent supplies its job. Skip to the lab.`
+			: `**Write the agent** in \`${path.dirname(rel)}/agent.md\`: \`# ${role}\`, then \`## Job\` (one paragraph telling the agent what to do, under 2,400 characters; this is the only part /agent receives), \`## Use it when\` (two bullets), and \`## Examples\` (two prompts someone types in Main, and what ${role} does). If ${role} must change files or run commands, add the line \`Access: work\` under the title. Then go straight to the lab.`);
 }
 
 export default function herdrPiLab(pi: ExtensionAPI): void {
@@ -74,20 +76,20 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	});
 	pi.registerMessageRenderer(NEW, (msg: any, opts: any, theme: any) => {
 		const pad = opts.outputPad ?? 1, d = msg.details || {};
-		const head = theme.fg('accent', theme.bold(`Herdr Lab · grow ${d.role || 'a role'}`)) + theme.fg('dim', d.starter ? '  ·  starter role: expectations only' : '');
+		const head = theme.fg('accent', theme.bold(`Herdr Lab · grow ${d.role || 'an agent'}`)) + theme.fg('dim', d.starter ? '  ·  starter role: expectations only' : '');
 		if (opts.expanded) { const md = new Markdown(String(msg.content), pad, 0, getMarkdownTheme()); return { invalidate() { md.invalidate(); }, render(w: number) { return [truncateToWidth(' '.repeat(pad) + head, w), ...md.render(w)]; } }; }
 		return { invalidate() {}, render(width: number) {
 			const w = Math.max(1, width - pad * 2);
 			const job = d.job ? wrapTextWithAnsi(theme.fg('muted', `“${d.job}”`), w) : [];
-			const steps = theme.fg('dim', 'interview → expectations → ' + (d.starter ? '' : 'role.md → ') + 'lab → report   (ctrl+o: full brief)');
+			const steps = theme.fg('dim', 'interview → expectations → ' + (d.starter ? '' : 'agent.md → ') + 'lab → report   (ctrl+o: full brief)');
 			return [head, ...job, steps].map(l => truncateToWidth(' '.repeat(pad) + l, width));
 		} };
 	});
 	pi.registerMessageRenderer(SUGGEST, (msg: any, opts: any, theme: any) => {
 		const pad = opts.outputPad ?? 1, d = msg.details || {};
-		const head = theme.fg('accent', theme.bold('Herdr Lab · suggest roles')) + theme.fg('dim', d.focus ? `  ·  “${d.focus}”` : '');
+		const head = theme.fg('accent', theme.bold('Herdr Lab · suggest agents')) + theme.fg('dim', d.focus ? `  ·  “${d.focus}”` : '');
 		if (opts.expanded) { const md = new Markdown(String(msg.content), pad, 0, getMarkdownTheme()); return { invalidate() { md.invalidate(); }, render(w: number) { return [truncateToWidth(' '.repeat(pad) + head, w), ...md.render(w)]; } }; }
-		const steps = theme.fg('dim', 'this conversation → role reports → project records → up to three roles, nothing built   (ctrl+o: full brief)');
+		const steps = theme.fg('dim', 'this conversation → agent reports → project records → up to three agents, nothing built   (ctrl+o: full brief)');
 		return { invalidate() {}, render(width: number) { return [head, steps].map(l => truncateToWidth(' '.repeat(pad) + l, width)); } };
 	});
 	pi.on('session_start', (_e, ctx) => { ctxRef = ctx; installLabGuidance(ctx, () => projectRoles(ctx.cwd)); });
@@ -148,7 +150,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			if (sub === 'list') {
 				const runs = core.list();
 				const mine = projectRoles(ctx.cwd);
-				ctx.ui.notify([`Roles with expectations here: ${mine.join(', ') || 'none yet (try /lab new Critic)'}`, runs.length ? 'Labs on this computer:' : 'No labs on this computer.',
+				ctx.ui.notify([`Agents with expectations here: ${mine.join(', ') || 'none yet (try /lab new Critic)'}`, runs.length ? 'Labs on this computer:' : 'No labs on this computer.',
 					...runs.map(r => `${r.id}  ${r.role}  ${r.core === 'running' ? 'open' : 'stopped'}  ${r.result ? (r.result === 'pass' ? '✓ passed' : `✗ ${r.counts?.fail} failed`) : r.phase}`)].join('\n'), 'info');
 				return;
 			}
@@ -161,7 +163,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 				return;
 			}
 			if (sub === 'report') {
-				const role = args[0]; if (!role) throw Error('Which role? e.g. /lab report Critic');
+				const role = args[0]; if (!role) throw Error('Which agent? e.g. /lab report Critic');
 				const dir = path.join(locate(ctx.cwd, role).dir, 'reports');
 				const latest = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().at(-1) : undefined;
 				if (!latest) { ctx.ui.notify(`No reports for ${role} yet. Run /lab test ${role}.`, 'warning'); return; }
@@ -175,7 +177,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			}
 			if (sub === 'new') {
 				const role = args.shift();
-				if (!role || !/^[a-z][a-z0-9_-]{0,31}$/i.test(role)) throw Error('Name the role in one word, e.g. /lab new Concierge');
+				if (!role || !/^[a-z][a-z0-9_-]{0,31}$/i.test(role)) throw Error('Name the agent in one word, e.g. /lab new Concierge');
 				const job = args.join(' ') || undefined;
 				if (!ctx.isIdle()) throw Error('Wait for this turn to finish, then run /lab new again.');
 				pi.sendMessage({ customType: NEW, content: newRolePrompt(ctx.cwd, role, job), display: true, details: { role, job, starter: STARTERS.some(s => s.toLowerCase() === role.toLowerCase()) } }, { triggerTurn: true });
@@ -195,7 +197,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand('lab', {
-		description: 'Grow and test roles in a private Herdr with a Black-box tester. /lab --help for examples.',
+		description: 'Grow and test agents in a private Herdr with a Black-box tester. /lab --help for examples.',
 		getArgumentCompletions: (prefix: string) => labCompletions(prefix, () => (ctxRef ? projectRoles(ctxRef.cwd) : STARTERS)),
 		handler: (args, ctx) => command(args, ctx),
 	});
@@ -204,9 +206,9 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: 'lab',
 		label: 'Herdr Lab',
-		description: 'Black-box test a Pi role in a private Herdr window. Actions: help; doctor; roles (expectations in this project); test {role, model?, testerModel?, behind?} starts a lab and returns its run ID at once; wait {run, seconds?} blocks until the Tester finishes (default 600 s) and returns every verdict with evidence; status {run}; list; report {role} (latest report text); stop {run}. The lab opens a visible Herdr Lab window. A start receipt is not a result: use wait. Write expectations in roles/<role>/expectations.md (format in help).',
+		description: 'Black-box test a Pi agent in a private Herdr window. Actions: help; doctor; agents (expectations in this project); test {role, model?, testerModel?, behind?} starts a lab and returns its run ID at once; wait {run, seconds?} blocks until the Tester finishes (default 600 s) and returns every verdict with evidence; status {run}; list; report {role} (latest report text); stop {run}. The lab opens a visible Herdr Lab window. A start receipt is not a result: use wait. Write expectations in agents/<agent>/expectations.md (format in help).',
 		parameters: Type.Object({
-			action: Type.Union(['help', 'doctor', 'roles', 'test', 'wait', 'status', 'list', 'report', 'stop'].map(v => Type.Literal(v))),
+			action: Type.Union(['help', 'doctor', 'agents', 'roles', 'test', 'wait', 'status', 'list', 'report', 'stop'].map(v => Type.Literal(v))),
 			role: Type.Optional(Type.String()), run: Type.Optional(Type.String()), model: Type.Optional(Type.String()), testerModel: Type.Optional(Type.String()),
 			behind: Type.Optional(Type.Boolean()), seconds: Type.Optional(Type.Integer({ minimum: 5, maximum: 1800 })),
 		}),
@@ -219,10 +221,10 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			switch (p.action) {
 				case 'help': return out(labHelp() + '\n\nExpectations format:\n' + FORMAT);
 				case 'doctor': return out(core.doctor(ctx.cwd));
-				case 'roles': return out({ roles: projectRoles(ctx.cwd), starters: STARTERS });
+				case 'agents': case 'roles': return out({ agents: projectRoles(ctx.cwd), starters: STARTERS });
 				case 'list': return out(core.list());
 				case 'test': {
-					if (!p.role) throw Error('test needs role.');
+					if (!p.role) throw Error('test needs agent.');
 					const run = await test(ctx, { role: p.role, model: p.model, testerModel: p.testerModel, background: p.behind });
 					return out({ started: true, run: run.id, role: run.role, terminals: run.terminals, next: `wait {"run":"${run.id}"}` }, `Herdr Lab opened ${run.id}: ${Object.keys(run.terminals).join(' · ')}`);
 				}
@@ -241,7 +243,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 					return out({ finished: false, waiting: true, state: core.readState(p.run), note: 'Still running; call wait again.' });
 				}
 				case 'report': {
-					if (!p.role) throw Error('report needs role.');
+					if (!p.role) throw Error('report needs agent.');
 					const dir = path.join(locate(ctx.cwd, p.role).dir, 'reports');
 					const latest = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().at(-1) : undefined;
 					return out(latest ? fs.readFileSync(path.join(dir, latest), 'utf8') : `No reports for ${p.role}.`);

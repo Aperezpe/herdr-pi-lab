@@ -7,7 +7,7 @@ import path from 'node:path';
 export const KINDS = ['do', 'run', 'expect', 'never', 'see', 'absent'];
 export const SETUP_TITLES = /^(before|setup|before the role opens)$/i;
 
-export const FORMAT = `# <Role> expectations
+export const FORMAT = `# <Agent> expectations
 
 ## Before
 Run: <optional: a shell command the lab runs in the project copy first, e.g. to plant a bug>
@@ -15,9 +15,9 @@ Do (Main): <optional: a prompt Main gets before the role opens>
 
 ## <Expectation title>
 Do (Main): <what to type in Main>
-Do (Role): <only when the check is about typing in the role's own pane, e.g. /role send main …>
-Expect (Role): <what must happen, judged from the screen>
-Never (Role): <what must not happen>
+Do (Agent): <only when the check is about typing in the role's own pane, e.g. /agent send main …>
+Expect (Agent): <what must happen, judged from the screen>
+Never (Agent): <what must not happen>
 See (Main): "<exact text that must appear>"
 Absent (Main): "<exact text that must not appear>"`;
 
@@ -32,7 +32,7 @@ function strip(text) {
 }
 
 /** Parse expectations Markdown into {title, before:[steps], items:[{id,title,lines}]}. Throws with a line number on mistakes. */
-export function parse(markdown, role = 'Role') {
+export function parse(markdown, role = 'Agent') {
   const out = { title: '', before: [], items: [] };
   let section = null, n = 0;
   for (const raw of String(markdown).split(/\r?\n/)) {
@@ -56,8 +56,8 @@ export function parse(markdown, role = 'Role') {
     }
     if (!section) throw Error(`Line ${n}: put "${m[1]}" under a "## Title" heading.`);
     const kind = m[1].toLowerCase();
-    let pane = (m[2] || (kind === 'do' ? 'Main' : 'Role')).trim();
-    if (/^role$/i.test(pane)) pane = role;
+    let pane = (m[2] || (kind === 'do' ? 'Main' : 'Agent')).trim();
+    if (/^(agent|role)$/i.test(pane)) pane = role; // (Role) is the old spelling of (Agent)
     if (/^main$/i.test(pane)) pane = 'Main';
     if (section.setup && kind !== 'do' && kind !== 'run') throw Error(`Line ${n}: the Before section only holds Do and Run lines.`);
     if (kind === 'run' && !section.setup) throw Error(`Line ${n}: Run lines belong under "## Before"; the lab runs them before the first prompt.`);
@@ -76,7 +76,7 @@ export function judged(item) { return item.lines.filter(l => l.kind === 'expect'
 export function observed(item) { return item.lines.filter(l => l.kind === 'see' || l.kind === 'absent'); }
 export function steps(item) { return item.lines.filter(l => l.kind === 'do'); }
 
-/** Panes named in the file other than Main and the role. */
+/** Panes named in the file other than Main and the agent. */
 export function panes(spec, role) {
   const all = new Set();
   for (const l of [...spec.before, ...spec.items.flatMap(i => i.lines)]) all.add(l.pane);
@@ -93,31 +93,34 @@ export function contains(screen, quote) {
   return q.length > 0 && fold(screen).includes(q);
 }
 
-/** Find the expectations file for a role: roles/<slug>/expectations.md, then agents/<slug>/expectations.md. */
+/** Find the expectations file for a role: agents/<slug>/expectations.md, then agents/<slug>/expectations.md. */
 export function locate(project, role) {
   const s = slug(role);
-  for (const dir of ['roles', 'agents']) {
+  for (const dir of ['agents', 'roles']) { // roles/ is the folder's old name
     const file = path.join(project, dir, s, 'expectations.md');
     if (fs.existsSync(file)) return { file, dir: path.dirname(file) };
   }
-  return { file: path.join(project, 'roles', s, 'expectations.md'), dir: path.join(project, 'roles', s), missing: true };
+  return { file: path.join(project, 'agents', s, 'expectations.md'), dir: path.join(project, 'agents', s), missing: true };
 }
 
-/** A custom role's job is the "## Job" section of role.md beside the expectations. */
-/** "Access: work" in role.md means the role changes files or runs commands, so the lab opens it with /role --work. */
+/** A custom agent's job is the "## Job" section of agent.md beside the expectations. */
+/** "Access: work" in agent.md means the agent changes files or runs commands, so the lab opens it with /agent --work. */
+/** agent.md, or role.md (its name until 2026-11-11) when that is what the folder has. */
+export function agentFile(dir) { const now = path.join(dir, 'agent.md'), old = path.join(dir, 'role.md'); return !fs.existsSync(now) && fs.existsSync(old) ? old : now; }
+
 export function access(dir) {
-  const file = path.join(dir, 'role.md');
+  const file = agentFile(dir);
   if (!fs.existsSync(file)) return 'read';
   return /^Access:\s*work\b/im.test(fs.readFileSync(file, 'utf8')) ? 'work' : 'read';
 }
 
 export function job(dir) {
-  const file = path.join(dir, 'role.md');
+  const file = agentFile(dir);
   if (!fs.existsSync(file)) return undefined;
   const text = fs.readFileSync(file, 'utf8');
   const m = text.match(/^##\s+Job\s*\n([\s\S]*?)(?=^##\s|(?![\s\S]))/m);
   const body = (m ? m[1] : text.replace(/^#.*$/m, '')).replace(/\s+/g, ' ').trim();
-  if (!body) throw Error(`${file} needs a "## Job" section: one paragraph telling the role what to do.`);
-  if (body.length > 2400) throw Error(`${file}: the Job section is ${body.length} characters; /role accepts up to 2,400.`);
+  if (!body) throw Error(`${file} needs a "## Job" section: one paragraph telling the agent what to do.`);
+  if (body.length > 2400) throw Error(`${file}: the Job section is ${body.length} characters; /agent accepts up to 2,400.`);
   return body;
 }

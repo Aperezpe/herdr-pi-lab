@@ -1,5 +1,5 @@
 // Herdr Pi Lab core: a private Herdr (its own core, app home, Pi profile and
-// project copy) with the role under test and a black-box Tester.
+// project copy) with the agent under test and a black-box Tester.
 // Every hc and herdr-app call goes through env(run), so nothing here can reach
 // the everyday Herdr core or window.
 import fs from 'node:fs';
@@ -24,7 +24,7 @@ const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8'))
 const writeJson = (p, v) => { mkdir(path.dirname(p)); const t = p + '.' + process.pid + '.tmp'; fs.writeFileSync(t, JSON.stringify(v, null, 2) + '\n', { mode: 0o600 }); fs.renameSync(t, p); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 export const ID_RE = /^lab-[0-9a-f]{6}$/;
-// Roles /role already knows; any other name needs role.md.
+// Agents /agent already knows; any other name needs agent.md.
 export const STARTER_ROLES = ['critic', 'notes', 'research'];
 
 export function dirs(id) {
@@ -63,7 +63,7 @@ export function which(name) {
 }
 
 /**
- * How to start the stock Pi as one process. /role matches its pane by the terminal's foreground
+ * How to start the stock Pi as one process. /agent matches its pane by the terminal's foreground
  * pid, so a shell shim that forks node would never match: start node and Pi's CLI directly.
  */
 export function piCommand() {
@@ -132,8 +132,8 @@ export function inheritLook(appHome, core) {
 
 // ---------- the guest project and Pi profile ----------
 
-// The role under test must not read its own expectations or reports: roles/ and expectations stay out.
-const SKIP = /(^|\/)(roles|reports|\.git|node_modules|\.pi|\.cache|dist|build|\.next|\.venv|__pycache__)(\/|$)|(^|\/)\.env|(auth|credentials?|secrets?|tokens?)\.(json|txt|ya?ml)$|\.(pem|key|p12)$/i;
+// The agent under test must not read its own expectations or reports: roles/ and expectations stay out.
+const SKIP = /(^|\/)(agents|roles|reports|\.git|node_modules|\.pi|\.cache|dist|build|\.next|\.venv|__pycache__)(\/|$)|(^|\/)\.env|(auth|credentials?|secrets?|tokens?)\.(json|txt|ya?ml)$|\.(pem|key|p12)$/i;
 function copyProject(project, dest) {
   mkdir(dest);
   let files = [];
@@ -148,7 +148,7 @@ function copyProject(project, dest) {
     mkdir(path.dirname(path.join(dest, f))); fs.copyFileSync(a, path.join(dest, f)); copied++;
   }
   spawnSync('git', ['init', '-q'], { cwd: dest });
-  // One commit, so roles that ask Git (which commit, what changed, git add) see a real repository.
+  // One commit, so agents that ask Git (which commit, what changed, git add) see a real repository.
   const who = ['-c', 'user.name=Herdr Lab', '-c', 'user.email=lab@herdr.invalid', '-c', 'commit.gpgsign=false'];
   spawnSync('git', ['add', '-A'], { cwd: dest });
   const commit = spawnSync('git', [...who, 'commit', '-q', '--no-verify', '-m', 'Lab copy'], { cwd: dest });
@@ -165,7 +165,7 @@ export function profile(agentDir) {
   writeJson(path.join(agentDir, 'settings.json'), { ...Object.fromEntries(keep.filter(k => k in s).map(k => [k, s[k]])), enableInstallTelemetry: false, quietStartup: true });
 }
 
-/** Find the /role extension the guest should load: explicit, the project's own copy, then installed packages. */
+/** Find the /agent extension the guest should load: explicit, the project's own copy, then installed packages. */
 export function roleExtension(project, explicit) {
   const ok = d => d && fs.existsSync(path.join(d, 'index.ts')) && /herdr-pi-role|temporary-role/.test(readJson(path.join(d, 'package.json'), {}).name || path.basename(d));
   const candidates = [explicit, process.env.HERDR_PI_LAB_ROLE_EXTENSION,
@@ -174,7 +174,7 @@ export function roleExtension(project, explicit) {
     path.join(os.homedir(), '.pi/agent/git/github.com/johnlindquist/herdr-pi-role'),
     path.join(os.homedir(), '.pi/agent/extensions/temporary-role')];
   for (const c of candidates) if (c && ok(path.resolve(c))) return path.resolve(c);
-  throw Error('The /role extension was not found in this project. Install it here first (pi install --local git:github.com/johnlindquist/herdr-pi-role), or pass --role-extension PATH.');
+  throw Error('The /agent extension was not found in this project. Install it here first (pi install --local git:github.com/johnlindquist/herdr-pi-role), or pass --agent-extension PATH.');
 }
 
 // ---------- run registry ----------
@@ -211,8 +211,8 @@ export function term(id, t) { return hcJson(id, ['get', t], { check: false }) ||
 /**
  * What a guest pane has shown since it started, from its Pi session: prompts and replies as text.
  * A fullscreen pane only keeps its latest lines on screen; this keeps the whole conversation.
- * For the role, everything up to and including its own setup (the forked history and its job)
- * is left out, so the Tester still never sees the role's instructions.
+ * For the agent, everything up to and including its own setup (the forked history and its job)
+ * is left out, so the Tester still never sees the agent's instructions.
  */
 export function transcript(id, pane) {
   const root = path.join(dirs(id).agent, 'sessions');
@@ -234,7 +234,7 @@ export function transcript(id, pane) {
         if (!text.trim() || !['user', 'assistant'].includes(m.role)) continue;
         out.push({ at: e.timestamp, who: m.role === 'user' ? 'typed' : pane, text: text.trim() });
       } else if (e.type === 'custom_message' && e.customType === 'temporary-role.observation') out.push({ at: e.timestamp, who: 'lab', text: '(Main\'s new conversation reached this role)' });
-      else if (e.type === 'custom' && e.customType === 'temporary-role.note.v1') { const t = e.data?.text || e.data?.message; out.push({ at: e.timestamp, who: 'lab', text: `(a role note arrived and waits for the next prompt${t ? `: ${String(t).slice(0, 300)}` : ''})` }); }
+      else if (e.type === 'custom' && e.customType === 'temporary-role.note.v1') { const t = e.data?.text || e.data?.message; out.push({ at: e.timestamp, who: 'lab', text: `(an agent note arrived and waits for the next prompt${t ? `: ${String(t).slice(0, 300)}` : ''})` }); }
     }
     return out;
   }
@@ -260,7 +260,7 @@ export async function piReady(id, t, seconds = 60) {
   return until(() => { const g = term(id, t); return idle(g) && /\S/.test(screen(id, t)) && g; }, seconds, `Pi in ${t}`);
 }
 
-/** Wait until every listed terminal has been quiet for `quiet` seconds (a watching role reacts after Main). */
+/** Wait until every listed terminal has been quiet for `quiet` seconds (a watching agent reacts after Main). */
 export async function settle(id, terminals, { quiet = 4, seconds = 240 } = {}) {
   const end = Date.now() + seconds * 1000;
   let last = '', since = Date.now();
@@ -292,26 +292,26 @@ export function doctor(project = process.cwd()) {
   add('hc', () => { const p = which('hc'); if (!p) throw Error('hc (herdr-core) not on PATH.'); return run(p, ['--version']).trim(); });
   add('herdr app', () => { const s = sourceApp(); return s; });
   add('pi', () => { const p = which('pi'); if (!p) throw Error('pi not on PATH.'); return run(p, ['--version']).trim(); });
-  add('/role extension', () => roleExtension(project));
+  add('/agent extension', () => roleExtension(project));
   add('lab app copy', () => { const r = path.join(HOME, 'app'); return fs.existsSync(r) ? fs.readdirSync(r).join(', ') || 'none yet' : 'made on first start'; });
   return { ok: checks.every(c => c.ok), checks };
 }
 
 /**
- * Start a lab for one role. Steps: copy the project, start a private core and Herdr Lab window,
- * open guest Main, run the Before steps, open the role with /role, then open the Tester below it.
+ * Start a lab for one agent. Steps: copy the project, start a private core and Herdr Lab window,
+ * open guest Main, run the Before steps, open the agent with /agent, then open the Tester below it.
  */
 export async function start(o, progress = () => {}) {
   const project = path.resolve(o.project || process.cwd());
   const role = String(o.role || '').trim();
-  if (!/^[a-z][a-z0-9_-]{0,31}$/i.test(role)) throw Error('Name the role to test, e.g. /lab test Critic (one word, up to 32 characters).');
+  if (!/^[a-z][a-z0-9_-]{0,31}$/i.test(role)) throw Error('Name the agent to test, e.g. /lab test Critic (one word, up to 32 characters).');
   const loc = o.expectations ? { file: path.resolve(o.expectations), dir: path.dirname(path.resolve(o.expectations)) } : locate(project, role);
   if (loc.missing) throw Error(`No expectations for ${role} yet. Write ${path.relative(project, loc.file)}, or run /lab new ${role} to write them together.`);
   const markdown = fs.readFileSync(loc.file, 'utf8');
   const spec = parse(markdown, role);
   const customJob = roleJob(loc.dir);
-  // /role gives any other name a placeholder job, so a new role must have its role.md before the lab runs.
-  if (!customJob && !STARTER_ROLES.includes(role.toLowerCase())) throw Error(`${role} has no role.md yet. Write ${path.relative(project, path.join(loc.dir, 'role.md'))} with a "## Job" section first (or run /lab new ${role}).`);
+  // /agent gives any other name a placeholder job, so a new agent must have its agent.md before the lab runs.
+  if (!customJob && !STARTER_ROLES.includes(role.toLowerCase())) throw Error(`${role} has no agent.md yet. Write ${path.relative(project, path.join(loc.dir, 'agent.md'))} with a "## Job" section first (or run /lab new ${role}).`);
   const ext = roleExtension(project, o.roleExtension);
   if (!o.model) throw Error('Choose the model the guest uses (provider/id).');
   const piBin = piCommand();
@@ -354,7 +354,7 @@ export async function start(o, progress = () => {}) {
 
     progress('Starting guest Main');
     const think = o.thinking ? ['--thinking', o.thinking] : [];
-    // Guest Main reads but doesn't run commands or edit: the lab tests the role, not Main's coding.
+    // Guest Main reads but doesn't run commands or edit: the lab tests the agent, not Main's coding.
     // Guest Main stays read-only even for a work role: in one run a writable Main fixed the bug itself.
     const work = roleAccess(loc.dir) === 'work';
     const mainTools = o.mainTools || 'read,grep,find,ls';
@@ -381,11 +381,11 @@ export async function start(o, progress = () => {}) {
       await type(id, main, step.text, [main], { quiet: 2 });
     }
 
-    progress(`Opening ${role} with /role`);
+    progress(`Opening ${role} with /agent`);
     const known = new Set(windowPanes(id).map(p => p.terminal));
-    // Roles are quick visual support and default to a fast model in /role (John, 2026-11-07); test them on what people will use.
-    // A role whose role.md says "Access: work" changes files or runs commands, so it opens with --work.
-    const cmd = `/role ${work ? '--work ' : ''}${role} --model ${o.roleModel || 'fast'}${customJob ? ' ' + customJob : ''}`;
+    // Agents are quick visual support and default to a fast model in /agent (John, 2026-11-07); test them on what people will use.
+    // An agent whose agent.md says "Access: work" changes files or runs commands, so it opens with --work.
+    const cmd = `/agent ${work ? '--work ' : ''}${role} --model ${o.roleModel || 'fast'}${customJob ? ' ' + customJob : ''}`;
     hc(id, ['send', main, cmd, '--json'], { timeout: 20000 });
     const opened = await until(() => windowPanes(id).find(p => !known.has(p.terminal)), 60, `the ${role} pane (check guest Main for an error)`);
     hc(id, ['label', opened.terminal, `lab.pane=${role}`], { check: false });

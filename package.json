@@ -1,7 +1,7 @@
 {
   "name": "herdr-pi-lab",
-  "version": "0.1.0",
-  "description": "/lab: grow and black-box test Pi roles in a private Herdr window with a built-in Tester.",
+  "version": "0.2.0",
+  "description": "/lab: grow and black-box test Pi agents in a private Herdr window with a built-in Tester.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -9,7 +9,7 @@
   "repository": {"type": "git", "url": "git+https://github.com/johnlindquist/herdr-pi-lab.git"},
   "pi": {"extensions": ["./index.ts"]},
   "bin": {"herdr-pi-lab": "./lab.mjs"},
-  "files": ["index.ts", "guidance.ts", "core.mjs", "expectations.mjs", "report.mjs", "new-role.md", "suggest.md", "lab.mjs", "tester/", "examples/", "README.md", "LICENSE"],
+  "files": ["index.ts", "guidance.ts", "core.mjs", "expectations.mjs", "report.mjs", "new-agent.md", "suggest.md", "lab.mjs", "tester/", "examples/", "README.md", "LICENSE"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.4.0 <2",
     "@earendil-works/pi-tui": ">=1.4.0 <2"

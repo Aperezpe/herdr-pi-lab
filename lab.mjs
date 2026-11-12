@@ -13,12 +13,12 @@ for (let i = 0; i < rest.length; i++) {
   else pos.push(a);
 }
 const print = v => process.stdout.write(JSON.stringify(v, null, 2) + '\n');
-const help = `herdr-pi-lab — grow and black-box test Pi roles in a private Herdr
+const help = `herdr-pi-lab — grow and black-box test Pi agents in a private Herdr
 
   lab.mjs doctor [--project DIR]
   lab.mjs check ROLE [--project DIR]            parse the expectations, start nothing
-  lab.mjs test ROLE --model provider/id [--role-model provider/id|main|fast] [--tester-model provider/id] [--thinking LEVEL]
-                    [--project DIR] [--behind] [--wait [--keep]] [--role-extension DIR]
+  lab.mjs test AGENT --model provider/id [--agent-model provider/id|main|fast] [--tester-model provider/id] [--thinking LEVEL]
+                    [--project DIR] [--behind] [--wait [--keep]] [--agent-extension DIR]
   lab.mjs status RUN | list | stop RUN|all | leftovers
 
 test opens a Herdr Lab window and returns its run at once; --wait blocks until
@@ -35,7 +35,7 @@ try {
     case 'status': print({ run: core.readRun(pos[0]), state: core.readState(pos[0]), core: core.coreUp(pos[0]) ? 'running' : 'stopped' }); break;
     case 'stop': { const ids = pos[0] === 'all' ? core.list().map(r => r.id) : [pos[0]]; const out = []; for (const id of ids) out.push(await core.stop(id)); print(out); break; }
     case 'test': {
-      const run = await core.start({ project, role: pos[0], model: flags.model, roleModel: flags['role-model'], thinking: flags.thinking, testerModel: flags['tester-model'], testerThinking: flags['tester-thinking'] || flags.thinking, background: flags.behind, keepOnError: flags['keep-on-error'], roleExtension: flags['role-extension'] },
+      const run = await core.start({ project, role: pos[0], model: flags.model, roleModel: flags['agent-model'] || flags['role-model'], thinking: flags.thinking, testerModel: flags['tester-model'], testerThinking: flags['tester-thinking'] || flags.thinking, background: flags.behind, keepOnError: flags['keep-on-error'], roleExtension: (flags['agent-extension'] || flags['role-extension']) },
         step => process.stderr.write(`· ${step}\n`));
       if (!flags.wait) { print({ started: true, run: run.id, terminals: run.terminals }); break; }
       const end = Date.now() + Number(flags.timeout || 900) * 1000;

@@ -1,6 +1,6 @@
 // The Lab's Black-box tester. It runs in its own Pi, started with only these
 // tools (--tools allowlist, --no-extensions), so it cannot read files, run a
-// shell or open the role's instructions: it can only type the expectations'
+// shell or open the agent's instructions: it can only type the expectations'
 // steps into guest panes, read those panes and record verdicts.
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -87,7 +87,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: 'lab_look', label: 'Lab · look',
-		description: 'Read a guest pane (Main or the role): everything it has shown since it opened (prompts typed into it, its replies, notes that arrived), then the end of its screen now.',
+		description: 'Read a guest pane (Main or the agent): everything it has shown since it opened (prompts typed into it, its replies, notes that arrived), then the end of its screen now.',
 		parameters: Type.Object({ pane: Type.String(), lines: Type.Optional(Type.Integer({ minimum: 5, maximum: 200 })) }),
 		renderResult,
 		async execute(_id, p) {
