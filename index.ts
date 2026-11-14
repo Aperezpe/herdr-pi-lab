@@ -163,7 +163,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { ctx.ui.notify(labHelp(), 'info'); return; }
 			if (sub === 'doctor') {
 				const d = core.doctor(ctx.cwd);
-				ctx.ui.notify(['Herdr Lab doctor', ...d.checks.map(c => `${c.ok ? '✓' : '✗'} ${c.name}: ${c.detail}`), d.ok ? 'Ready for /lab test or /lab new.' : 'Fix the ✗ lines first.'].join('\n'), d.ok ? 'info' : 'error');
+				ctx.ui.notify(core.doctorText(d), d.ok ? 'info' : 'error');
 				return;
 			}
 			if (sub === 'list') {

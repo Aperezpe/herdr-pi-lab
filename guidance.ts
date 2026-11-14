@@ -6,6 +6,10 @@ import { type AutocompleteItem, CURSOR_MARKER, stripTerminalSequences, truncateT
 import fs from 'node:fs';
 
 export const LAB_USAGE = '/lab new|test|suggest|list|stop|report|doctor [Agent]';
+/** The ghost text after a bare /lab, as in the lesson's video. */
+export const LAB_HINT = '<new|test|doctor>';
+/** The first lines of /lab --help, as in the lesson's video. */
+export const LAB_GUIDE_HEAD = ['Lab · grow and test agents', '/lab new <name> — interview, then grow an agent', '/lab test <name> — run it against its expectations', '/lab doctor — check the lab workspace and harness'];
 export const STARTERS = ['Critic', 'Notes', 'Research'];
 export const SUBCOMMANDS = ['new', 'test', 'suggest', 'list', 'stop', 'report', 'doctor'];
 
@@ -18,19 +22,19 @@ const examples: AutocompleteItem[] = [
 	{ value: 'list', label: 'list', description: 'Labs on this computer and their results' },
 	{ value: 'stop', label: 'stop', description: 'Close the last lab: window, core and scratch files' },
 	{ value: 'report Critic', label: 'report Critic', description: 'Show the latest report for an agent' },
-	{ value: 'doctor', label: 'doctor', description: 'Check Herdr, hc, Pi and /agent before a lab' },
+	{ value: 'doctor', label: 'doctor', description: 'Check the lab workspace and harness' },
 	{ value: '--help', label: '--help', description: 'The whole guide, without starting a lab' },
 ];
 const TEST_FLAGS: AutocompleteItem[] = [
 	{ value: '--model ', label: '--model provider/id', description: 'Model for guest Main and the agent (default: this one)' },
 	{ value: '--tester-model ', label: '--tester-model provider/id', description: 'Model that judges (default: this one)' },
 	{ value: '--behind', label: '--behind', description: 'Open the lab window behind this one' },
-	{ value: '--detached', label: '--detached', description: 'Checks only: no window (no screenshot, and /split cannot open a pane)' },
 ];
 
 export function labHelp(shortcut?: string): string {
 	return [
-		'Herdr Lab · grow and test agents in a private Herdr',
+		...LAB_GUIDE_HEAD,
+		'',
 		'A lab is a second Herdr window with its own core, its own Pi profile and a copy of this project. Guest Main opens the agent with /agent; a Black-box tester below it types the steps from the agent\'s expectations, reads what actually appeared and writes a report. It never sees the role\'s instructions. Your everyday Herdr and this conversation are untouched.',
 		'',
 		...examples.map(item => `/lab ${item.value}  —  ${item.description}`),
@@ -89,18 +93,18 @@ export function labCompletions(prefix: string, roles: () => string[] = () => STA
 export function labHint(text: string): string | undefined {
 	if (!/^\/lab(?: |$)/.test(text) || /[\r\n]/.test(text)) return undefined;
 	const args = text.slice(4).trimStart();
-	if (!args) return text === '/lab' ? 'new|test|doctor [Agent] · Space: examples' : 'new|test|doctor [Agent] · ↑/↓ + Tab: insert example';
+	if (!args) return text === '/lab' ? `${LAB_HINT} · Space: examples` : `${LAB_HINT} · ↑/↓ + Tab: insert example`;
 	if (/^(--help|-h)\s*$/.test(args)) return 'Show the guide without starting a lab';
 	const [sub, ...rest] = args.split(' ');
 	const arg = rest.join(' ');
 	switch (sub) {
 		case 'new': return !arg ? '<Agent> [what it should do] · e.g. Concierge' : !arg.includes(' ') ? '[what it should do] · Enter: start the interview' : 'Enter: start the interview';
-		case 'test': return !arg ? '<Agent | lab-scenarios.md [check]> [--model provider/id] · Tab: agents with expectations' : /^\S+\.md(\s|$)/i.test(arg) ? '[check: 1, first, /split] [--behind] [--detached] · Enter: the lab agent runs it' : /--(tester-|agent-|role-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
+		case 'test': return !arg ? '<Agent | lab-scenarios.md [check]> [--model provider/id] · Tab: agents with expectations' : /^\S+\.md(\s|$)/i.test(arg) ? '[check: 1, first, /split] [--behind] · Enter: the lab agent runs it' : /--(tester-|agent-|role-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
 		case 'report': return !arg ? '<Agent> · its latest report' : 'Enter: show the report';
 		case 'stop': return !arg ? '[run ID | all] · default: the last lab you started' : 'Enter: close it';
 		case 'suggest': return !arg ? '[what to look at] · Enter: propose up to three agents, build nothing' : 'Enter: propose agents for this';
 		case 'list': return 'Enter: labs on this computer';
-		case 'doctor': return 'Enter: check before your first lab';
+		case 'doctor': return 'Enter: check the lab workspace and harness';
 		default: return SUBCOMMANDS.some(s => s.startsWith(sub)) ? 'Tab: complete the command' : `Unknown. Try ${LAB_USAGE}`;
 	}
 }

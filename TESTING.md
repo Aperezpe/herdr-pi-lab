@@ -91,3 +91,17 @@ The two checks in the lesson's video, run with `--detached` only (no window was 
 **Not yet run:** both checks in a Herdr Lab window (`--behind` or in front), which is where the screenshot, the picker and the new pane can pass. The window path uses the same `space.new`, `pane.split` and `shot` calls as an agent test, plus `pane.close`.
 
 Finding that changed the code: a fullscreen Pi pads its screen with blank rows, so the last 30 lines of a harness pane were empty and the lab agent saw nothing. The lab now squeezes blank rows before taking the end of a screen.
+
+## 0.4.0: the video's wording and places (2026-11-14)
+
+No window was opened for these runs. Pi 1.5.0, hc 0.1.19, a sandbox with its own home folder and Pi settings folder, a fresh clone of RentAPlace.
+
+| Run | Result |
+|---|---|
+| `lab.mjs doctor` | `Lab workspace ready · lab harness ready`, with `/agent` shown as a note because it was not installed in the clone. |
+| `lab.mjs test lab-scenarios.md first --detached --keep` | 3 of 4 steps (the screenshot needs a window). The project copy was `~/.lab/rentaplace` and the run's scratch folder `~/.lab/lab-6103a9`. |
+| `lab.mjs stop lab-6103a9`, then `leftovers` | `~/.lab` was empty; `{"runs":[],"processes":[],"sockets":[]}`. |
+
+**Not yet run:** a lab in a Herdr window since the project copy moved to `~/.lab/<project>` and the Herdr Lab app copy to `~/.lab/app`.
+
+Finding that changed the code: the lab looked for installed extensions only in `~/.pi/agent`, so a Pi that keeps its settings elsewhere (`PI_CODING_AGENT_DIR`) had `/split` and `/agent` installed and the lab did not find them. It now looks in Pi's own settings folder.

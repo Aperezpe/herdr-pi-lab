@@ -1,6 +1,6 @@
 {
   "name": "herdr-pi-lab",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "/lab: grow and black-box test Pi agents in a private Herdr window with a built-in Tester.",
   "license": "MIT",
   "type": "module",

@@ -13,7 +13,7 @@ test('subcommands complete, then agent names, then test flags', () => {
 	expect(labCompletions('te', roles)!.map(i => i.value)).toEqual(['test ']);
 	expect(labCompletions('test ', roles)!.map(i => i.value)).toEqual(['test Critic ', 'test Concierge ']);
 	expect(labCompletions('test C', roles)![0].label).toBe('Keep what I typed');
-	expect(labCompletions('test Critic ', roles)!.map(i => i.value)).toEqual(['test Critic --model ', 'test Critic --tester-model ', 'test Critic --behind', 'test Critic --detached']);
+	expect(labCompletions('test Critic ', roles)!.map(i => i.value)).toEqual(['test Critic --model ', 'test Critic --tester-model ', 'test Critic --behind']);
 	expect(labCompletions('new ', roles)!.map(i => i.label)).toEqual(['Critic', 'Concierge', 'Notes', 'Research']);
 });
 
@@ -57,4 +57,16 @@ test('the suggest brief names existing agents, asks for a source and a /lab new 
 	for (const s of ['looking at: “guest support”', 'Critic, ci-watch', "Don't build anything", 'No source, no suggestion', '/lab new <Name>', 'at most three']) expect(p).toContain(s);
 	expect(suggestPrompt([])).toContain('none yet');
 	expect(suggestPrompt([])).not.toContain('{{');
+});
+
+test('the ghost text and the first lines of the guide are the ones in the lesson video', () => {
+	expect(labHint('/lab')!.startsWith('<new|test|doctor>')).toBe(true);
+	expect(labHint('/lab ')!.startsWith('<new|test|doctor>')).toBe(true);
+	expect(labHelp().split('\n').slice(0, 4)).toEqual(['Lab · grow and test agents', '/lab new <name> — interview, then grow an agent', '/lab test <name> — run it against its expectations', '/lab doctor — check the lab workspace and harness']);
+});
+
+test('--detached is a testing aid: accepted, never suggested while typing', () => {
+	expect(labCompletions('test lab-scenarios.md ', roles)!.map(i => i.label).join(' ')).not.toContain('--detached');
+	expect(labHint('/lab test lab-scenarios.md ')).not.toContain('--detached');
+	expect(labHelp()).not.toContain('--detached');
 });

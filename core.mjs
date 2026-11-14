@@ -10,10 +10,13 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parse, locate, job as roleJob, access as roleAccess, slug, panes as extraPanes } from './expectations.mjs';
 
-export const VERSION = '0.1.0';
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
-// Short on purpose: guest pane headers show their folder, e.g. ~/.herdr-lab/lab-1a2b3c/rentaplace.
-export const HOME = process.env.HERDR_PI_LAB_HOME || path.join(os.homedir(), '.herdr-lab');
+export const VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(HERE, 'package.json'), 'utf8')).version; } catch { return 'unknown'; } })();
+// The lab's own folder. Short on purpose: lab pane headers show the project copy, e.g. ~/.lab/rentaplace.
+export const HOME = process.env.HERDR_PI_LAB_HOME || path.join(os.homedir(), '.lab');
+// Labs started before 0.4.0 lived in ~/.herdr-lab; /lab list and /lab stop still find them.
+const LEGACY_HOME = process.env.HERDR_PI_LAB_HOME ? undefined : path.join(os.homedir(), '.herdr-lab');
+const rootOf = id => { const here = path.join(HOME, id); return !fs.existsSync(here) && LEGACY_HOME && fs.existsSync(path.join(LEGACY_HOME, id)) ? path.join(LEGACY_HOME, id) : here; };
 const mac = process.platform === 'darwin';
 const BUNDLE_ID = 'dev.herdr.lab';
 // macOS limits a Unix socket path to 103 bytes; keep core state short.
@@ -29,9 +32,9 @@ export const STARTER_ROLES = ['critic', 'notes', 'research'];
 
 export function dirs(id) {
   if (!ID_RE.test(id)) throw Error(`Not a lab run ID: ${id}`);
-  const root = path.join(HOME, id);
-  const name = readJson(path.join(root, 'run.json'), {}).projectName || 'project';
-  return { root, run: path.join(root, 'run.json'), state: path.join(root, 'state.json'), project: path.join(root, name), agent: path.join(root, 'pi-agent'), app: path.join(root, 'app'), config: path.join(root, 'config'), logs: path.join(root, 'logs'), sock: path.join(SOCK_ROOT, id) };
+  const root = rootOf(id);
+  const r = readJson(path.join(root, 'run.json'), {});
+  return { root, run: path.join(root, 'run.json'), state: path.join(root, 'state.json'), project: r.copy || path.join(root, r.projectName || 'project'), agent: path.join(root, 'pi-agent'), app: path.join(root, 'app'), config: path.join(root, 'config'), logs: path.join(root, 'logs'), sock: path.join(SOCK_ROOT, id) };
 }
 
 /** The environment for one lab: the caller's ordinary variables minus anything that names another Herdr core, window or Pi profile. */
@@ -165,14 +168,17 @@ export function profile(agentDir) {
   writeJson(path.join(agentDir, 'settings.json'), { ...Object.fromEntries(keep.filter(k => k in s).map(k => [k, s[k]])), enableInstallTelemetry: false, quietStartup: true });
 }
 
+/** Where Pi keeps personal packages: PI_CODING_AGENT_DIR when set, else ~/.pi/agent. */
+const piAgentDir = () => process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+
 /** Find the /agent extension the guest should load: explicit, the project's own copy, then installed packages. */
 export function roleExtension(project, explicit) {
   const ok = d => d && fs.existsSync(path.join(d, 'index.ts')) && /herdr-pi-role|temporary-role/.test(readJson(path.join(d, 'package.json'), {}).name || path.basename(d));
   const candidates = [explicit, process.env.HERDR_PI_LAB_ROLE_EXTENSION,
     path.join(project, '.pi/extensions/temporary-role'), path.join(project, '.pi/extensions/herdr-pi-role'),
     path.join(project, '.pi/git/github.com/johnlindquist/herdr-pi-role'),
-    path.join(os.homedir(), '.pi/agent/git/github.com/johnlindquist/herdr-pi-role'),
-    path.join(os.homedir(), '.pi/agent/extensions/temporary-role')];
+    path.join(piAgentDir(), 'git/github.com/johnlindquist/herdr-pi-role'),
+    path.join(piAgentDir(), 'extensions/temporary-role')];
   for (const c of candidates) if (c && ok(path.resolve(c))) return path.resolve(c);
   throw Error('The /agent extension was not found in this project. Install it here first (pi install --local git:github.com/johnlindquist/herdr-pi-role), or pass --agent-extension PATH.');
 }
@@ -184,10 +190,26 @@ export const readState = id => readJson(dirs(id).state, undefined);
 export const writeRun = (id, patch) => { const cur = readRun(id) || {}; const next = { ...cur, ...patch, updated: new Date().toISOString() }; writeJson(dirs(id).run, next); return next; };
 export const writeState = (id, v) => writeJson(dirs(id).state, v);
 
+/** Where a lab's project copy goes: ~/.lab/<project>, or ~/.lab/<project>-<run> while another lab holds that name. */
+export function copyPlace(id, project, home = HOME) {
+  const projectName = (path.basename(project).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^\.+/, '') || 'project').slice(0, 40);
+  const plain = path.join(home, projectName);
+  const taken = projectName === 'app' || ID_RE.test(projectName) || fs.existsSync(plain);
+  return { projectName, copy: taken ? `${plain}-${id.slice(4)}` : plain };
+}
+/** Only a folder directly inside the lab's folder that is not a run or the app copy may be removed as a project copy. */
+export const isCopyPlace = (copy, home = HOME) => !!copy && path.dirname(copy) === home && path.basename(copy) !== 'app' && !ID_RE.test(path.basename(copy));
+/** Register a new run: its scratch folder and the place of its project copy. */
+function claim(id, project) {
+  mkdir(path.join(HOME, id));
+  const place = copyPlace(id, project);
+  writeJson(path.join(HOME, id, 'run.json'), { id, ...place });
+  return place.projectName;
+}
+
 export function list() {
-  const root = HOME;
-  if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root).filter(n => ID_RE.test(n)).map(id => {
+  const ids = [HOME, LEGACY_HOME].filter(r => r && fs.existsSync(r)).flatMap(r => fs.readdirSync(r).filter(n => ID_RE.test(n)));
+  return [...new Set(ids)].map(id => {
     const r = readRun(id) || { id }, s = readState(id);
     return { id, role: r.role, project: r.project, phase: r.phase, started: r.created, core: coreUp(id) ? 'running' : 'stopped', result: s?.result, counts: s ? tally(s) : undefined };
   }).sort((a, b) => String(b.started).localeCompare(String(a.started)));
@@ -285,16 +307,29 @@ export async function type(id, terminal, text, all, opt = {}) {
 
 // ---------- lifecycle ----------
 
+/**
+ * Check the lab workspace (Herdr and its command line) and the lab harness (Pi) before a first lab.
+ * A missing /agent or /split is a note, not a failure: the first check in lab-scenarios.md needs neither.
+ */
 export function doctor(project = process.cwd()) {
   const checks = [];
-  const add = (name, fn) => { try { checks.push({ name, ok: true, detail: fn() }); } catch (e) { checks.push({ name, ok: false, detail: e.message }); } };
-  add('platform', () => { if (!mac && process.platform !== 'linux') throw Error('macOS or Linux is required.'); return process.platform; });
-  add('hc', () => { const p = which('hc'); if (!p) throw Error('hc (herdr-core) not on PATH.'); return run(p, ['--version']).trim(); });
-  add('herdr app', () => { const s = sourceApp(); return s; });
-  add('pi', () => { const p = which('pi'); if (!p) throw Error('pi not on PATH.'); return run(p, ['--version']).trim(); });
-  add('/agent extension', () => roleExtension(project));
-  add('lab app copy', () => { const r = path.join(HOME, 'app'); return fs.existsSync(r) ? fs.readdirSync(r).join(', ') || 'none yet' : 'made on first start'; });
-  return { ok: checks.every(c => c.ok), checks };
+  const add = (part, name, fn, optional) => { try { checks.push({ part, name, ok: true, detail: fn() }); } catch (e) { checks.push({ part, name, ok: !!optional, ...(optional ? { note: true } : {}), detail: e.message }); } };
+  add('workspace', 'platform', () => { if (!mac && process.platform !== 'linux') throw Error('macOS or Linux is required.'); return process.platform; });
+  add('workspace', 'hc', () => { const p = which('hc'); if (!p) throw Error('hc (herdr-core), the Herdr command-line tool, is not on PATH. Install Herdr, then make sure `hc --version` works in this shell.'); return run(p, ['--version']).trim(); });
+  add('workspace', 'herdr app', () => sourceApp());
+  add('workspace', 'lab app copy', () => { const r = path.join(HOME, 'app'); return fs.existsSync(r) ? fs.readdirSync(r).join(', ') || 'none yet' : 'made on first start'; });
+  add('harness', 'pi', () => { const p = which('pi'); if (!p) throw Error('pi is not on PATH. Install Pi, then make sure `pi --version` works in this shell.'); return run(p, ['--version']).trim(); });
+  add('harness', '/agent extension', () => { try { return roleExtension(project); } catch { throw Error('not installed in this project yet. /lab new and /lab test <Agent> need it: pi install --local git:github.com/johnlindquist/herdr-pi-role. The checks in lab-scenarios.md run without it.'); } }, true);
+  add('harness', '/split extension', () => { const hit = carriedExtensions(project).find(e => /herdr-pi-split/.test(e)); if (!hit) throw Error('not found. The /split check needs it: pi install git:github.com/johnlindquist/herdr-pi-split.'); return hit; }, true);
+  const ready = part => checks.filter(c => c.part === part).every(c => c.ok);
+  const workspace = ready('workspace'), harness = ready('harness');
+  return { ok: workspace && harness, headline: doctorHeadline(workspace, harness), workspace, harness, checks };
+}
+/** The line /lab doctor leads with, as in the lesson's video: "Lab workspace ready · lab harness ready". */
+export const doctorHeadline = (workspace, harness) => `Lab workspace ${workspace ? 'ready' : 'not ready'} · lab harness ${harness ? 'ready' : 'not ready'}`;
+/** /lab doctor as text: the headline, one line per check (✓ fine, ✗ fix this, ○ a note), then what to do next. */
+export function doctorText(d) {
+  return [d.headline, ...d.checks.map(c => `${c.note ? '○' : c.ok ? '✓' : '✗'} ${c.name}: ${c.detail}`), d.ok ? 'Ready for /lab test or /lab new.' : 'Fix the ✗ lines, then run /lab doctor again.'].join('\n');
 }
 
 /**
@@ -349,12 +384,10 @@ export async function start(o, progress = () => {}) {
   const hcBin = which('hc'); if (!hcBin) throw Error('hc not on PATH.');
 
   const id = 'lab-' + randomBytes(3).toString('hex');
-  mkdir(path.join(HOME, id));
-  writeJson(path.join(HOME, id, 'run.json'), { id, projectName: (path.basename(project).toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'project').slice(0, 40) });
+  const projectName = claim(id, project);
   const d = dirs(id);
   mkdir(d.root); mkdir(d.logs); mkdir(d.config); mkdir(d.sock);
   fs.writeFileSync(path.join(d.root, 'expectations.md'), markdown);
-  const projectName = (path.basename(project).toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'project').slice(0, 40);
   const base = { id, version: VERSION, role, project, projectName, expectations: loc.file, roleDir: loc.dir, customJob: !!customJob, model: o.model, roleModel: o.roleModel || 'fast', testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} };
   writeRun(id, base);
   writeState(id, { id, role, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
@@ -452,7 +485,11 @@ export async function stop(id, { keepFiles = false } = {}) {
   }
   if (coreUp(id)) { hc(id, ['server', 'stop'], { check: false }); for (let i = 0; i < 50 && coreUp(id); i++) await sleep(100); done.push('core stopped'); }
   fs.rmSync(d.sock, { recursive: true, force: true });
-  if (!keepFiles) fs.rmSync(d.root, { recursive: true, force: true }); else writeRun(id, { phase: 'stopped' });
+  if (!keepFiles) {
+    // The project copy sits beside the run's scratch folder: remove only the copy this run recorded.
+    if (isCopyPlace(r.copy)) fs.rmSync(r.copy, { recursive: true, force: true });
+    fs.rmSync(d.root, { recursive: true, force: true });
+  } else writeRun(id, { phase: 'stopped' });
   return { id, stopped: true, done, removed: keepFiles ? d.sock : d.root };
 }
 function alive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
@@ -473,7 +510,7 @@ export function carriedExtensions(project) {
   const found = [];
   for (const [name, re] of [['herdr-pi-split', /herdr-pi-split/], ['herdr-pi-role', /herdr-pi-role|temporary-role/]]) {
     const candidates = [path.join(project, '.pi/extensions', name), path.join(project, '.pi/git/github.com/johnlindquist', name),
-      path.join(os.homedir(), '.pi/agent/git/github.com/johnlindquist', name), path.join(os.homedir(), '.pi/agent/extensions', name), path.join(HERE, '..', name)];
+      path.join(piAgentDir(), 'git/github.com/johnlindquist', name), path.join(piAgentDir(), 'extensions', name), path.join(HERE, '..', name)];
     const hit = candidates.find(c => fs.existsSync(path.join(c, 'index.ts')) && re.test(readJson(path.join(c, 'package.json'), {}).name || path.basename(c)));
     if (hit) found.push(path.resolve(hit));
   }
@@ -591,9 +628,7 @@ export async function startCheck(o, progress = () => {}) {
   const piBin = piCommand();
   if (!which('hc')) throw Error('hc not on PATH.');
   const id = 'lab-' + randomBytes(3).toString('hex');
-  const projectName = (path.basename(project).toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'project').slice(0, 40);
-  mkdir(path.join(HOME, id));
-  writeJson(path.join(HOME, id, 'run.json'), { id, projectName });
+  const projectName = claim(id, project);
   const d = dirs(id);
   mkdir(d.logs); mkdir(d.config); mkdir(d.sock); mkdir(path.join(d.root, 'lab-agent'));
   writeRun(id, { id, version: VERSION, kind: 'check', role: `check ${check.id}`, check, source: o.source || 'asked in plain words', project, projectName, model: o.model, extensions: carriedExtensions(project), created: new Date().toISOString(), phase: 'starting', terminals: {} });
