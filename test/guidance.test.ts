@@ -6,14 +6,14 @@ const roles = () => ['Critic', 'Concierge'];
 
 test('a space after /lab lists every example, ending with --help', () => {
 	const items = labCompletions('', roles)!;
-	expect(items.map(i => i.value)).toEqual(['new Concierge', 'test Critic', 'new Critic', 'suggest', 'list', 'stop', 'report Critic', 'doctor', '--help']);
+	expect(items.map(i => i.value)).toEqual(['new Concierge', 'test Critic', 'test lab-scenarios.md 1', 'new Critic', 'suggest', 'list', 'stop', 'report Critic', 'doctor', '--help']);
 });
 
 test('subcommands complete, then agent names, then test flags', () => {
 	expect(labCompletions('te', roles)!.map(i => i.value)).toEqual(['test ']);
 	expect(labCompletions('test ', roles)!.map(i => i.value)).toEqual(['test Critic ', 'test Concierge ']);
 	expect(labCompletions('test C', roles)![0].label).toBe('Keep what I typed');
-	expect(labCompletions('test Critic ', roles)!.map(i => i.value)).toEqual(['test Critic --model ', 'test Critic --tester-model ', 'test Critic --behind']);
+	expect(labCompletions('test Critic ', roles)!.map(i => i.value)).toEqual(['test Critic --model ', 'test Critic --tester-model ', 'test Critic --behind', 'test Critic --detached']);
 	expect(labCompletions('new ', roles)!.map(i => i.label)).toEqual(['Critic', 'Concierge', 'Notes', 'Research']);
 });
 

@@ -77,3 +77,17 @@ After every batch, `node lab.mjs leftovers` printed `{"runs":[],"processes":[],"
 ## /lab suggest (2026-11-11)
 
 First real run: Pi 1.5.0 in RPC mode, `/lab suggest` sent as the prompt, in a fresh RentAPlace clone holding six roles (booking, ci-watch, fixer, pm, repro, research) and their Lab reports. Main made 43 read-only tool calls in 42 seconds and proposed two roles (ReplayRunner, FixRouter), each with cited report lines and a `/lab new` line; it built nothing. The cited Fixer lines were checked by hand. Not exercised: the command typed in a Herdr window (its one-line card and the dim hint are covered by unit tests only), and a project with customer feedback or a working conversation. In this run the “friction” came from what roles handed back inside Lab tests.
+
+## Checks from lab-scenarios.md (2026-11-14)
+
+The two checks in the lesson's video, run with `--detached` only (no window was opened for these runs): hc 0.1.18 class core, Pi 1.5.0, lab agent on `anthropic/claude-haiku-5-5`. Test project: a three-file repository with the video's `lab-scenarios.md`.
+
+| Run | Result | What it shows |
+|---|---|---|
+| `lab.mjs test lab-scenarios.md first --detached` | 3 of 4 steps, 17 s | The lab agent opened P2, typed `ls`, quoted the listing from P2's screen and closed P2, each with a quote the lab captured. "Take a screenshot" failed with the lab's own line: a detached lab has no window. Nothing was left running. |
+| Main asked in plain words (`pi -p -e index.ts "Use the lab to run the first check in lab-scenarios.md…"`) | The same 3 of 4, 22 s | Main called the `lab` tool's `check` action and reported the steps as they came back, including the failed one. |
+| `lab.mjs test lab-scenarios.md /split --detached` | 1 of 3 steps | The harness pane started with `/split` carried over from a checkout beside this one; the lab agent sent a short prompt and typed `/split`. `/split` answered "Terminal t2 does not belong to a Herdr app space", so no picker and no new pane: a detached lab has no Herdr window to split. |
+
+**Not yet run:** both checks in a Herdr Lab window (`--behind` or in front), which is where the screenshot, the picker and the new pane can pass. The window path uses the same `space.new`, `pane.split` and `shot` calls as an agent test, plus `pane.close`.
+
+Finding that changed the code: a fullscreen Pi pads its screen with blank rows, so the last 30 lines of a harness pane were empty and the lab agent saw nothing. The lab now squeezes blank rows before taking the end of a screen.

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as core from './core.mjs';
 import { FORMAT, locate, slug } from './expectations.mjs';
+import { checkMessage, headline, isScenariosFile, resolveChecks, SCENARIOS_FORMAT } from './scenarios.mjs';
 import { installLabGuidance, labCompletions, labHelp, LAB_USAGE, STARTERS, suggestPrompt } from './guidance.ts';
 
 const MSG = 'herdr-pi-lab';
@@ -36,14 +37,17 @@ export function parseTest(args: string[]) {
 		const flag = a === '--role-model' ? '--agent-model' : a === '--role-extension' ? '--agent-extension' : a; // --role-* were the names until 2026-11-11
 		if (VALUE_FLAGS[flag]) { const v = args[++i]; if (!v) throw Error(`${flag} needs a value.`); o[VALUE_FLAGS[flag]] = v; }
 		else if (a === '--behind') o.background = true;
+		else if (a === '--detached') o.detached = true;
 		else if (a.startsWith('--')) throw Error(`Unknown option ${a}. Try /lab --help.`);
 		else if (!o.role) o.role = a;
+		// After a scenarios file, the remaining words choose a check: 1, first, /split.
+		else if (isScenariosFile(o.role)) o.check = [o.check, a].filter(Boolean).join(' ');
 		else throw Error(`Unexpected "${a}". Usage: /lab test <Agent> [--model provider/id].`);
 	}
 	if (!o.role) throw Error('Which agent? e.g. /lab test Critic');
+	if (o.detached && !isScenariosFile(o.role)) throw Error('--detached is for checks from a scenarios file; an agent test needs the Herdr Lab window.');
 	return o;
 }
-
 export function newRolePrompt(cwd: string, role: string, job?: string): string {
 	const template = fs.readFileSync(new URL('./new-agent.md', import.meta.url), 'utf8');
 	const starter = STARTERS.some(s => s.toLowerCase() === role.toLowerCase());
@@ -137,6 +141,21 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 		return run;
 	}
 
+	/** Run checks one after another, each in its own lab, with the lab agent in the background of Main. */
+	async function check(ctx: ExtensionContext, q: { file?: string; check?: string; say?: string; model?: string; background?: boolean; detached?: boolean }) {
+		const model = q.model || modelOf(ctx);
+		if (!model) throw Error('No model is selected. Choose one with /model, or pass --model provider/id.');
+		const outcomes: any[] = [];
+		for (const { check, source } of resolveChecks(ctx.cwd, q)) {
+			const show = (line: string) => { if (ctx.hasUI) ctx.ui.setWidget(MSG, [`Herdr Lab · ${check.title} · ${line}`]); };
+			const started = await core.startCheck({ project: ctx.cwd, check, source, model, background: !!q.background, detached: !!q.detached }, step => show(`${step}…`));
+			lastRun = started.run.id;
+			const tick = setInterval(() => { const s = core.readState(started.run.id); if (s && ctx.hasUI) ctx.ui.setWidget(MSG, [`Herdr Lab · ${check.title} · lab agent running`, ...s.items.map((i: any) => `  ${MARK[i.verdict || 'pending']} ${i.id} · ${i.title}`)]); }, 1500);
+			try { outcomes.push(await started.outcome); } finally { clearInterval(tick); if (ctx.hasUI) ctx.ui.setWidget(MSG, undefined); }
+		}
+		return outcomes;
+	}
+
 	async function command(raw: string, ctx: ExtensionContext) {
 		const args = raw.trim().split(/\s+/).filter(Boolean);
 		const sub = args.shift() || '';
@@ -172,6 +191,13 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			}
 			if (sub === 'test') {
 				const o = parseTest(args);
+				if (isScenariosFile(o.role)) {
+					const q = { file: o.role, check: o.check, model: o.model, background: o.background, detached: o.detached };
+					resolveChecks(ctx.cwd, q); // refuse a missing file or an unknown check before anything starts
+					// The lab agent works in the background; the command returns at once and the result arrives as a message.
+					void check(ctx, q).then(all => { for (const one of all) say(checkMessage(ctx.cwd, one)); }, (e: any) => ctx.ui.notify(`${e.message}${e.run ? ` (run ${e.run})` : ''}`, 'error'));
+					return;
+				}
 				await test(ctx, o);
 				return;
 			}
@@ -206,10 +232,11 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: 'lab',
 		label: 'Herdr Lab',
-		description: 'Black-box test a Pi agent in a private Herdr window. Actions: help; doctor; agents (expectations in this project); test {role, model?, testerModel?, behind?} starts a lab and returns its run ID at once; wait {run, seconds?} blocks until the Tester finishes (default 600 s) and returns every verdict with evidence; status {run}; list; report {role} (latest report text); stop {run}. The lab opens a visible Herdr Lab window. A start receipt is not a result: use wait. Write expectations in agents/<agent>/expectations.md (format in help).',
+		description: 'Run a check in the lab, or black-box test a Pi agent, in a private Herdr window. When asked to "use the lab" to run a check, call check: check {file?, check?, say?, behind?, detached?} runs checks from lab-scenarios.md (check: a number, "first", or words such as "/split"; none runs them all) or one described in plain words (say), waits for the lab agent, and returns every step as tried / expected / got with a quote from the screen; the lab is closed afterwards. Report the steps to the person as they came back; never restate a failed step as passed. Other actions: help; doctor; agents (expectations in this project); test {role, model?, testerModel?, behind?} starts a lab and returns its run ID at once; wait {run, seconds?} blocks until the Tester finishes (default 600 s) and returns every verdict with evidence; status {run}; list; report {role} (latest report text); stop {run}. The lab opens a visible Herdr Lab window. A start receipt is not a result: use wait. Write expectations in agents/<agent>/expectations.md (format in help).',
 		parameters: Type.Object({
-			action: Type.Union(['help', 'doctor', 'agents', 'roles', 'test', 'wait', 'status', 'list', 'report', 'stop'].map(v => Type.Literal(v))),
+			action: Type.Union(['help', 'doctor', 'agents', 'roles', 'check', 'test', 'wait', 'status', 'list', 'report', 'stop'].map(v => Type.Literal(v))),
 			role: Type.Optional(Type.String()), run: Type.Optional(Type.String()), model: Type.Optional(Type.String()), testerModel: Type.Optional(Type.String()),
+			file: Type.Optional(Type.String({ description: 'Scenarios file; default lab-scenarios.md in the project.' })), check: Type.Optional(Type.String({ description: 'Which check: a number, "first", or words from it.' })), say: Type.Optional(Type.String({ description: 'A check in plain words, instead of a file.' })), detached: Type.Optional(Type.Boolean()),
 			behind: Type.Optional(Type.Boolean()), seconds: Type.Optional(Type.Integer({ minimum: 5, maximum: 1800 })),
 		}),
 		renderResult(result: any, options: any, theme: any) {
@@ -219,7 +246,12 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 		},
 		async execute(_id, p, signal, _u, ctx) {
 			switch (p.action) {
-				case 'help': return out(labHelp() + '\n\nExpectations format:\n' + FORMAT);
+				case 'help': return out(labHelp() + '\n\nExpectations format:\n' + FORMAT + '\n\nScenarios format (lab-scenarios.md):\n' + SCENARIOS_FORMAT);
+				case 'check': {
+					const all = await check(ctx, { file: p.file, check: p.check, say: p.say, model: p.model, background: p.behind, detached: p.detached });
+					return out(all.map(o => ({ run: o.run, check: o.check.title, result: o.result, headline: o.error ? undefined : headline(o.check, o.items), report: o.report, error: o.error, steps: o.items.map((i: any) => ({ step: i.id, text: i.title, verdict: i.verdict ?? 'not reported', tried: i.tried, expected: i.expected, got: i.got, quote: i.quote })) })),
+						all.map(o => o.error ? `lab agent · ${o.check.title} did not finish` : [`lab agent · ${headline(o.check, o.items)}`, ...o.items.map((i: any) => `  ${MARK[i.verdict]} ${i.id} · ${i.title}`)].join('\n')).join('\n'));
+				}
 				case 'doctor': return out(core.doctor(ctx.cwd));
 				case 'agents': case 'roles': return out({ agents: projectRoles(ctx.cwd), starters: STARTERS });
 				case 'list': return out(core.list());

@@ -133,12 +133,12 @@ export function inheritLook(appHome, core) {
 // ---------- the guest project and Pi profile ----------
 
 // The agent under test must not read its own expectations or reports: roles/ and expectations stay out.
-const SKIP = /(^|\/)(agents|roles|reports|\.git|node_modules|\.pi|\.cache|dist|build|\.next|\.venv|__pycache__)(\/|$)|(^|\/)\.env|(auth|credentials?|secrets?|tokens?)\.(json|txt|ya?ml)$|\.(pem|key|p12)$/i;
+const SKIP = /(^|\/)(agents|roles|reports|lab-reports|\.git|node_modules|\.pi|\.cache|dist|build|\.next|\.venv|__pycache__)(\/|$)|(^|\/)\.env|(auth|credentials?|secrets?|tokens?)\.(json|txt|ya?ml)$|\.(pem|key|p12)$/i;
 function copyProject(project, dest) {
   mkdir(dest);
   let files = [];
   const git = spawnSync('git', ['-C', project, 'ls-files', '-co', '--exclude-standard', '-z'], { encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (git.status === 0) files = git.stdout.split('\0').filter(Boolean).filter(f => !/(^|\/)expectations\.md$/i.test(f));
+  if (git.status === 0) files = git.stdout.split('\0').filter(Boolean).filter(f => !/(^|\/)(expectations|lab-scenarios)\.md$/i.test(f));
   let bytes = 0, copied = 0;
   for (const f of files) {
     if (SKIP.test(f)) continue;
@@ -298,6 +298,37 @@ export function doctor(project = process.cwd()) {
 }
 
 /**
+ * The isolation step shared by every lab: copy the project, make the scratch Pi profile, start a
+ * private core and (unless detached) the Herdr Lab window. A detached lab has no window at all.
+ */
+async function openLab(id, project, o, progress) {
+  const d = dirs(id);
+  progress('Copying the project');
+  const copied = copyProject(project, d.project);
+  profile(d.agent);
+  mkdir(path.join(d.config, 'herdr-core'));
+  fs.writeFileSync(path.join(d.config, 'herdr-core', 'config.toml'), 'notes = false\n');
+
+  if (o.detached) { hc(id, ['server', 'start'], { timeout: 20000 }); writeRun(id, { copied, detached: true }); return; }
+  progress('Preparing Herdr Lab');
+  const a = labApp();
+  writeRun(id, { app: { bin: a.bin, bundle: a.bundle, version: a.version }, copied });
+  hc(id, ['server', 'start'], { timeout: 20000 });
+  inheritLook(d.app, which('hc'));
+
+  progress('Opening the Herdr Lab window');
+  const vars = ['HC_SESSION', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'HERDR_APP_HOME', 'HERDR_APP_NO_SOUND', 'HERDR_TELEMETRY', 'PI_CODING_AGENT_DIR', 'PI_SKIP_VERSION_CHECK', 'HERDR_PI_LAB_RUN'];
+  const e = env(id), log = path.join(d.logs, 'app.log');
+  // HERDR_PI_LAB_BEHIND=1 opens every lab behind your windows (for unattended runs and captures).
+  const behind = o.background || process.env.HERDR_PI_LAB_BEHIND === '1';
+  if (a.bundle) run('/usr/bin/open', ['-n', ...(behind ? ['-g'] : []), '-a', a.bundle, ...vars.flatMap(k => ['--env', `${k}=${e[k]}`]), '--stdout', log, '--stderr', log], { id });
+  else { const fd = fs.openSync(log, 'a'); const { spawn } = await import('node:child_process'); spawn(a.bin, [], { env: e, detached: true, stdio: ['ignore', fd, fd] }).unref(); }
+  // The first launch of a freshly signed copy can take a while for macOS to verify.
+  await until(() => appJson(id, ['status'], { check: false, timeout: 5000 }), 120, 'the Herdr Lab window');
+  writeRun(id, { appPid: findAppPid(id) });
+}
+
+/**
  * Start a lab for one agent. Steps: copy the project, start a private core and Herdr Lab window,
  * open guest Main, run the Before steps, open the agent with /agent, then open the Tester below it.
  */
@@ -328,29 +359,8 @@ export async function start(o, progress = () => {}) {
   writeRun(id, base);
   writeState(id, { id, role, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
   try {
-    progress('Copying the project');
-    const copied = copyProject(project, d.project);
-    profile(d.agent);
+    await openLab(id, project, { background: o.background }, progress);
     fs.cpSync(ext, path.join(d.root, 'role-extension'), { recursive: true, filter: s => !/node_modules|\.git$/.test(s) });
-    mkdir(path.join(d.config, 'herdr-core'));
-    fs.writeFileSync(path.join(d.config, 'herdr-core', 'config.toml'), 'notes = false\n');
-
-    progress('Preparing Herdr Lab');
-    const a = labApp();
-    writeRun(id, { app: { bin: a.bin, bundle: a.bundle, version: a.version }, copied });
-    hc(id, ['server', 'start'], { timeout: 20000 });
-    inheritLook(d.app, hcBin);
-
-    progress('Opening the Herdr Lab window');
-    const vars = ['HC_SESSION', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'HERDR_APP_HOME', 'HERDR_APP_NO_SOUND', 'HERDR_TELEMETRY', 'PI_CODING_AGENT_DIR', 'PI_SKIP_VERSION_CHECK', 'HERDR_PI_LAB_RUN'];
-    const e = env(id), log = path.join(d.logs, 'app.log');
-    // HERDR_PI_LAB_BEHIND=1 opens every lab behind your windows (for unattended runs and captures).
-    const behind = o.background || process.env.HERDR_PI_LAB_BEHIND === '1';
-    if (a.bundle) run('/usr/bin/open', ['-n', ...(behind ? ['-g'] : []), '-a', a.bundle, ...vars.flatMap(k => ['--env', `${k}=${e[k]}`]), '--stdout', log, '--stderr', log], { id });
-    else { const fd = fs.openSync(log, 'a'); const { spawn } = await import('node:child_process'); spawn(a.bin, [], { env: e, detached: true, stdio: ['ignore', fd, fd] }).unref(); }
-    // The first launch of a freshly signed copy can take a while for macOS to verify.
-    await until(() => appJson(id, ['status'], { check: false, timeout: 5000 }), 120, 'the Herdr Lab window');
-    writeRun(id, { appPid: findAppPid(id) });
 
     progress('Starting guest Main');
     const think = o.thinking ? ['--thinking', o.thinking] : [];
@@ -455,5 +465,174 @@ export function leftovers() {
   const sockets = fs.existsSync(SOCK_ROOT) ? fs.readdirSync(SOCK_ROOT) : [];
   return { runs: runs.map(r => r.id), processes: procs, sockets };
 }
+
+// ---------- checks: a lab agent drives the lab from plain words ----------
+
+/** Extensions that carry over into the lab's harness panes: /split and /agent, wherever this computer has them. */
+export function carriedExtensions(project) {
+  const found = [];
+  for (const [name, re] of [['herdr-pi-split', /herdr-pi-split/], ['herdr-pi-role', /herdr-pi-role|temporary-role/]]) {
+    const candidates = [path.join(project, '.pi/extensions', name), path.join(project, '.pi/git/github.com/johnlindquist', name),
+      path.join(os.homedir(), '.pi/agent/git/github.com/johnlindquist', name), path.join(os.homedir(), '.pi/agent/extensions', name), path.join(HERE, '..', name)];
+    const hit = candidates.find(c => fs.existsSync(path.join(c, 'index.ts')) && re.test(readJson(path.join(c, 'package.json'), {}).name || path.basename(c)));
+    if (hit) found.push(path.resolve(hit));
+  }
+  for (const extra of (process.env.HERDR_PI_LAB_EXTENSIONS || '').split(path.delimiter).filter(Boolean)) if (fs.existsSync(extra)) found.push(path.resolve(extra));
+  return [...new Set(found)];
+}
+
+const CAPTURED = id => path.join(dirs(id).root, 'captured.txt');
+/** Everything the lab itself saw or did in a check. A step's quote must come from here. */
+export const captured = id => { try { return fs.readFileSync(CAPTURED(id), 'utf8'); } catch { return ''; } };
+export function record(id, text) { fs.appendFileSync(CAPTURED(id), text.replace(/\s+$/, '') + '\n'); return text; }
+
+/** Panes in the lab now: the ones the lab agent opened by name (P1, P2…), any other by its terminal address. */
+export function labPanes(id) {
+  const r = readRun(id), names = Object.fromEntries(Object.entries(r.terminals || {}).map(([k, t]) => [t, k]));
+  const live = r.detached ? (hcJson(id, ['ls'], { check: false })?.terminals || []).map(t => ({ terminal: t.address })) : windowPanes(id);
+  return live.map(p => ({ name: names[p.terminal] || p.terminal, terminal: p.terminal, pane: p.pane }));
+}
+export function paneNamed(id, name) {
+  const all = labPanes(id), want = String(name).trim().toLowerCase();
+  const hit = all.find(p => p.name.toLowerCase() === want || p.terminal.toLowerCase() === want);
+  if (!hit) throw Error(`No pane called "${name}". Panes now: ${all.map(p => p.name).join(', ') || 'none'}.`);
+  return hit;
+}
+const paneList = id => labPanes(id).map(p => p.name).join(', ') || 'none';
+
+/** Open a pane in the lab workspace running a shell or the harness (Pi with the carried-over extensions). */
+export async function openPane(id, program = 'shell') {
+  const r = readRun(id), d = dirs(id);
+  if (!['shell', 'harness'].includes(program)) throw Error('A pane runs "shell" or "harness".');
+  const argv = program === 'shell' ? [process.env.SHELL || '/bin/sh']
+    : [...piCommand(), '--no-extensions', ...(r.extensions || []).flatMap(e => ['-e', e]), '--no-skills', '--no-prompt-templates', '--no-themes', '--model', r.model];
+  const name = 'P' + ((r.paneCount || 0) + 1);
+  const before = new Set(labPanes(id).map(p => p.terminal));
+  if (r.detached) hc(id, ['run', '--bg', '--json', '--no-parent', '--cwd', d.project, '--label', `lab.pane=${name}`, ...argv], { timeout: 20000 });
+  else if (!before.size) {
+    const space = appJson(id, ['do', 'space.new', JSON.stringify({ machine: '', name: 'Lab', folder: d.project, argv })], { timeout: 20000 });
+    if (!space?.terminal) throw Error('Herdr Lab did not confirm the pane.');
+    writeRun(id, { space: space.space });
+  } else {
+    // pane.split has no folder argument; pass the folder as data, never as shell source.
+    const from = labPanes(id).at(-1);
+    appJson(id, ['do', 'pane.split', JSON.stringify({ pane: from.pane, direction: 'right', argv: ['/bin/sh', '-c', 'cd "$1" && shift && exec "$@"', 'lab', d.project, ...argv] })], { timeout: 20000 });
+  }
+  const opened = await until(() => labPanes(id).find(p => !before.has(p.terminal)), 30, 'the new pane');
+  if (!r.detached) hc(id, ['label', opened.terminal, `lab.pane=${name}`], { check: false });
+  writeRun(id, { paneCount: (r.paneCount || 0) + 1, terminals: { ...(readRun(id).terminals || {}), [name]: opened.terminal } });
+  await until(() => /\S/.test(screen(id, opened.terminal)), 60, `${name} to show something`);
+  return record(id, `[lab] opened pane ${name} (${program}) · panes now: ${paneList(id)}`);
+}
+
+export async function closePane(id, name) {
+  const p = paneNamed(id, name), r = readRun(id);
+  if (r.detached) { hc(id, ['kill', p.terminal], { check: false }); hc(id, ['rm', p.terminal], { check: false }); }
+  else app(id, ['do', 'pane.close', JSON.stringify({ pane: p.pane })], { timeout: 15000 });
+  await until(() => !labPanes(id).some(x => x.terminal === p.terminal), 20, `${p.name} to close`);
+  return record(id, `[lab] closed pane ${p.name} · panes now: ${paneList(id)}`);
+}
+
+/** Wait until no pane's screen has changed for `quiet` seconds, so a shell, a picker and a working agent all count. */
+export async function still(id, { quiet = 2, seconds = 120 } = {}) {
+  const end = Date.now() + seconds * 1000;
+  let last = '', since = Date.now();
+  for (;;) {
+    const sig = labPanes(id).map(p => p.terminal + screen(id, p.terminal)).join('\u0000');
+    if (sig !== last) { last = sig; since = Date.now(); }
+    if (Date.now() - since >= quiet * 1000) return true;
+    if (Date.now() > end) return false;
+    await sleep(400);
+  }
+}
+
+// A fullscreen harness pads its screen with blank rows; squeeze them so the conversation above the prompt stays in view.
+const lastLines = (s, n) => s.split('\n').map(l => l.trimEnd()).filter((l, i, a) => l || a[i - 1]).join('\n').replace(/\s+$/, '').split('\n').slice(-n).join('\n');
+/** Read panes the way a person would: the end of each screen, kept as evidence. */
+export function readPanes(id, only, lines = 40) {
+  const panes = only ? [paneNamed(id, only)] : labPanes(id);
+  return record(id, [`[lab] panes now: ${paneList(id)}`, ...panes.map(p => `--- ${p.name}: end of screen ---\n${lastLines(screen(id, p.terminal), lines) || '(blank)'}`)].join('\n'));
+}
+export async function typeInPane(id, name, text) {
+  const p = paneNamed(id, name);
+  hc(id, ['send', p.terminal, text, '--json'], { timeout: 20000 });
+  await sleep(1000);
+  const quiet = await still(id);
+  return `typed in ${p.name}: ${text}${quiet ? '' : '  (still changing after 2 minutes)'}\n` + readPanes(id);
+}
+export async function pressKeys(id, name, keys) {
+  const p = paneNamed(id, name);
+  hc(id, ['keys', p.terminal, ...keys, '--json'], { timeout: 20000 });
+  await sleep(1000);
+  await still(id);
+  return `pressed in ${p.name}: ${keys.join(' ')}\n` + readPanes(id);
+}
+/** A screenshot of the lab window. A detached lab has no window, and says so. */
+export function screenshot(id) {
+  const r = readRun(id), d = dirs(id);
+  if (r.detached) return record(id, '[lab] screenshot unavailable: this lab is detached and has no window');
+  const n = (r.shots || []).length + 1, file = path.join(d.root, `shot-${n}.png`);
+  app(id, ['shot', file], { timeout: 15000 });
+  if (!fs.existsSync(file)) throw Error('Herdr Lab did not save the screenshot.');
+  writeRun(id, { shots: [...(r.shots || []), file] });
+  return record(id, `[lab] screenshot saved: shot-${n}.png (${fs.statSync(file).size} bytes)`);
+}
+
+/**
+ * Start a lab for one check: isolate as always, open one shell pane (P1), then run the lab agent
+ * in the background (a headless Pi with only the lab's driving tools). Returns the run and a
+ * promise of the outcome; the lab is stopped when the lab agent finishes unless keep is set.
+ */
+export async function startCheck(o, progress = () => {}) {
+  const project = path.resolve(o.project || process.cwd());
+  const check = o.check;
+  if (!check?.steps?.length) throw Error('startCheck needs a check with steps.');
+  if (!o.model) throw Error('Choose the model the lab agent uses (provider/id).');
+  const piBin = piCommand();
+  if (!which('hc')) throw Error('hc not on PATH.');
+  const id = 'lab-' + randomBytes(3).toString('hex');
+  const projectName = (path.basename(project).toLowerCase().replace(/[^a-z0-9._-]+/g, '-') || 'project').slice(0, 40);
+  mkdir(path.join(HOME, id));
+  writeJson(path.join(HOME, id, 'run.json'), { id, projectName });
+  const d = dirs(id);
+  mkdir(d.logs); mkdir(d.config); mkdir(d.sock); mkdir(path.join(d.root, 'lab-agent'));
+  writeRun(id, { id, version: VERSION, kind: 'check', role: `check ${check.id}`, check, source: o.source || 'asked in plain words', project, projectName, model: o.model, extensions: carriedExtensions(project), created: new Date().toISOString(), phase: 'starting', terminals: {} });
+  writeState(id, { id, kind: 'check', title: check.title, items: check.steps.map(s => ({ id: s.id, title: s.text, verdict: null })), result: null });
+  try {
+    await openLab(id, project, { background: o.background, detached: o.detached }, progress);
+    progress('Opening the first lab pane');
+    await openPane(id, 'shell');
+    writeRun(id, { phase: 'testing' });
+    progress('Lab agent running');
+  } catch (err) {
+    writeRun(id, { phase: 'failed', error: err.message });
+    if (!o.keepOnError) await stop(id).catch(() => {});
+    err.run = id; throw err;
+  }
+  const log = fs.openSync(path.join(d.logs, 'lab-agent.log'), 'a');
+  const { spawn } = await import('node:child_process');
+  // The lab agent starts in an empty folder with no file, shell or web tools: zero knowledge of what it tests.
+  const child = spawn(piBin[0], [...piBin.slice(1), '-p', '--no-extensions', '-e', path.join(HERE, 'checker', 'index.ts'), '--tools', 'lab_open,lab_type,lab_keys,lab_read,lab_shot,lab_close,lab_step,lab_finish',
+    '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-mcp', '--no-session', '--model', o.model,
+    '--append-system-prompt', path.join(HERE, 'checker', 'prompt.md'), '--lab-run', id, checkPrompt(id)], { cwd: path.join(d.root, 'lab-agent'), env: env(id), stdio: ['ignore', log, log] });
+  const outcome = new Promise(resolve => {
+    const timer = setTimeout(() => child.kill('SIGTERM'), (o.seconds || 900) * 1000);
+    child.on('error', e => finish(e.message));
+    child.on('exit', code => finish(code === 0 ? undefined : `the lab agent exited ${code}`));
+    let done = false;
+    async function finish(problem) {
+      if (done) return; done = true; clearTimeout(timer); fs.closeSync(log);
+      const s = readState(id) || {}, items = s.items || [];
+      const error = s.report ? undefined : `The lab agent stopped before finishing (${problem || 'no report'}). Its log: ${tailFile(path.join(d.logs, 'lab-agent.log'))}`;
+      if (error) writeRun(id, { phase: 'failed', error });
+      if (!o.keep) await stop(id).catch(() => {});
+      resolve({ run: id, check, result: error ? 'unfinished' : s.result, report: s.report, shot: s.shot, summary: s.summary, items, error, stopped: !o.keep });
+    }
+  });
+  return { run: readRun(id), outcome };
+}
+/** The lab agent's only message: the check in plain words and the lab as it stands. */
+const checkPrompt = id => { const c = readRun(id).check; return `Run this check in the lab.\n\n${c.title}\n${c.steps.map(s => `${s.id}. ${s.text}`).join('\n')}\n\n${readPanes(id)}`; };
+const tailFile = f => { try { return fs.readFileSync(f, 'utf8').trim().slice(-600) || 'empty'; } catch { return 'missing'; } };
 
 export { slug, parse, locate };

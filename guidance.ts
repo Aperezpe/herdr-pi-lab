@@ -12,6 +12,7 @@ export const SUBCOMMANDS = ['new', 'test', 'suggest', 'list', 'stop', 'report', 
 const examples: AutocompleteItem[] = [
 	{ value: 'new Concierge', label: 'new Concierge', description: 'Grow a new agent: expectations first, then the agent' },
 	{ value: 'test Critic', label: 'test Critic', description: 'Check an agent from outside against its expectations' },
+	{ value: 'test lab-scenarios.md 1', label: 'test lab-scenarios.md 1', description: 'Run a check from the scenarios file: a lab agent drives the lab and reports each step' },
 	{ value: 'new Critic', label: 'new Critic', description: 'Write expectations for a starter agent' },
 	{ value: 'suggest', label: 'suggest', description: 'Propose agents from this project\'s own friction; builds nothing' },
 	{ value: 'list', label: 'list', description: 'Labs on this computer and their results' },
@@ -24,6 +25,7 @@ const TEST_FLAGS: AutocompleteItem[] = [
 	{ value: '--model ', label: '--model provider/id', description: 'Model for guest Main and the agent (default: this one)' },
 	{ value: '--tester-model ', label: '--tester-model provider/id', description: 'Model that judges (default: this one)' },
 	{ value: '--behind', label: '--behind', description: 'Open the lab window behind this one' },
+	{ value: '--detached', label: '--detached', description: 'Checks only: no window (no screenshot, and /split cannot open a pane)' },
 ];
 
 export function labHelp(shortcut?: string): string {
@@ -39,6 +41,8 @@ export function labHelp(shortcut?: string): string {
 		'  Never (Critic): agrees with Main\'s rule as if the number of nights had been decided',
 		'  See (Main): "exact text"      Absent (Main): "exact text"',
 		'Do lines are typed exactly as written. Expect and Never are judged by the Tester, which must quote the screen. See and Absent are checked by the lab itself.',
+		'',
+		'Checks are plain words. lab-scenarios.md at the project root holds them: each "## 1 · Title" is one check, each line under it one step, and a line ending in "?" is a question answered from the screen. Ask Main to "use the lab to run the first check in lab-scenarios.md", or type /lab test lab-scenarios.md 1 (a number, "first", or words such as /split; nothing runs them all). A lab agent in the background opens panes, types, presses keys, reads the screens and reports each step as "I tried X, expected Y, got Z" with a quote the lab captured. The report goes to lab-reports/ and the lab closes itself.',
 		'',
 		'/lab suggest reads this conversation, your agents\' reports and the project\'s records, and proposes up to three agents you don\'t have, each with where it saw the friction and the /lab new line that starts it. It builds nothing.',
 		'/lab new asks a few questions, writes the expectations for you to approve, then writes agent.md and runs the lab until the agent passes or needs you. /lab test runs the same check again after you change the agent or its expectations.',
@@ -91,7 +95,7 @@ export function labHint(text: string): string | undefined {
 	const arg = rest.join(' ');
 	switch (sub) {
 		case 'new': return !arg ? '<Agent> [what it should do] · e.g. Concierge' : !arg.includes(' ') ? '[what it should do] · Enter: start the interview' : 'Enter: start the interview';
-		case 'test': return !arg ? '<Agent> [--model provider/id] · Tab: agents with expectations' : /--(tester-|agent-|role-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
+		case 'test': return !arg ? '<Agent | lab-scenarios.md [check]> [--model provider/id] · Tab: agents with expectations' : /^\S+\.md(\s|$)/i.test(arg) ? '[check: 1, first, /split] [--behind] [--detached] · Enter: the lab agent runs it' : /--(tester-|agent-|role-)?model\s*$/.test(arg) ? 'provider/id' : '[--model provider/id] [--tester-model provider/id] [--behind] · Enter: run the lab';
 		case 'report': return !arg ? '<Agent> · its latest report' : 'Enter: show the report';
 		case 'stop': return !arg ? '[run ID | all] · default: the last lab you started' : 'Enter: close it';
 		case 'suggest': return !arg ? '[what to look at] · Enter: propose up to three agents, build nothing' : 'Enter: propose agents for this';
