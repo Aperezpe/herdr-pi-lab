@@ -1,8 +1,10 @@
 # Herdr Pi Lab
 
-Grow and test Pi agents in a private Herdr. Type `/lab test Critic` and a second Herdr window, **Herdr Lab**, opens beside your own. Its guest Main opens the Critic with `/agent`, and a **Black-box tester** below it types the steps from the Critic's expectations, reads what actually appeared and writes a report. The Tester never sees the agent's instructions, and your everyday Herdr, Pi sessions and project are never touched.
+`/lab`: grow and test Pi agents in a private Herdr. Type `/lab test Critic` and a second Herdr window, **Herdr Lab**, opens beside your own. Its guest Main opens the Critic with `/agent`, and a **Black-box tester** below it types the steps from the Critic's expectations, reads what actually appeared and writes a report. The Tester never sees the agent's instructions, and your everyday Herdr, Pi sessions and project are never touched.
 
 ![A Herdr Lab window: guest Main on the left, the agent above right, the Tester's checklist below it](docs/lab-window.png)
+
+The screenshots were taken before 2026-11-11, when an agent was still called a role: where a picture says `/role`, `roles/` or `role.md`, read `/agent`, `agents/` and `agent.md`.
 
 Starting an agent from scratch? `/lab new Concierge` asks you a few questions, writes the expectations first, writes the agent, and runs the lab until the agent passes or needs you.
 
@@ -11,14 +13,18 @@ Starting an agent from scratch? `/lab new Concierge` asks you a few questions, w
 Requires macOS or Linux with the [Herdr desktop app](https://github.com/herdrdev/herdr-app) (0.1.12+), `hc` (herdr-core 0.1.17+) and [Pi](https://github.com/earendil-works/pi) 1.4+, plus the `/agent` extension ([herdr-pi-role](https://github.com/johnlindquist/herdr-pi-role)) in the project you're testing. No Docker.
 
 ```sh
+pi install --local git:github.com/johnlindquist/herdr-pi-role   # /agent, in the project you test
+```
+
+```sh
 pi install git:github.com/johnlindquist/herdr-pi-lab
 ```
 
-Then run `/reload` in Pi, and `/lab doctor` once. To remove it: `pi remove git:github.com/johnlindquist/herdr-pi-lab`. While the repository is private, your GitHub account needs read access.
+Then run `/reload` in Pi, and `/lab doctor` once. To remove it: `pi remove git:github.com/johnlindquist/herdr-pi-lab`.
 
 ## Use
 
-Type `/lab` and a space: Pi lists examples. Use **↑/↓** and **Tab** to insert one, then edit it. Dim text beside the cursor tells you what you can type next; it never becomes part of the command. `/lab --help` shows the whole guide without starting a lab, even outside Herdr.
+Type `/lab`: dim text after the cursor shows `new|test|doctor [Agent]`. Add a space and Pi lists examples. Use **↑/↓** and **Tab** to insert one, then edit it. Dim text beside the cursor tells you what you can type next; it never becomes part of the command. `/lab --help` shows the whole guide without starting a lab, even outside Herdr.
 
 ![Typing /lab and a space lists examples; dim text after the cursor says what comes next](docs/examples-on-space.png)
 
@@ -103,6 +109,24 @@ node lab.mjs list | stop RUN | stop all | leftovers
 ```
 
 `test --wait` prints every verdict and exits 0 when all expectations pass, 1 when one fails, 2 when the lab couldn't run. It stops the lab afterwards unless `--keep`.
+
+## How it maps to the MEGA.dev lesson
+
+This is John Lindquist's own build of the lab from MEGA.dev S04E01 ("Splitting Conversations, the Lab, and Your First Agents"). The lesson teaches you to build your own for whatever harness and workspace you use; this repository is the finished Pi and Herdr version to compare with. Its siblings are [`/split`](https://github.com/johnlindquist/herdr-pi-split) and [`/agent`](https://github.com/johnlindquist/herdr-pi-role).
+
+| In the lesson | Here |
+|---|---|
+| Step one, isolate: a separate copy of the workspace that shares your model sign-in, and a copy of the project | [What a lab is](#what-a-lab-is): its own Herdr (`dev.herdr.lab`), its own core and Pi profile linked to your logins, a copy of the tracked files under `~/.herdr-lab/<run>` |
+| Step two, drive: type and press keys like a person, read only what is on screen | The lab types each `Do` line with `hc`; the Tester reads the panes and must quote them |
+| Step three, report and clean up | `agents/<agent>/reports/<time>-<run>.md` with a screenshot; `/lab stop` closes that window, that core and its scratch files |
+| `/lab`, `/lab --help`, `/lab doctor` | The same three. `/lab doctor` checks Herdr, `hc`, Pi and `/agent` |
+| An expectations file: Do, Expect, Never | `agents/<agent>/expectations.md`. Do, Expect and Never are lines under one `## heading` per expectation, with the pane in brackets; see [Expectations](#expectations) |
+| The Critic's three checks | [examples/critic/expectations.md](examples/critic/expectations.md) |
+| `/lab new critic`, then `/lab test critic` | The same. Names are not case sensitive |
+| `--agent-model`, `--tester-model`, `--behind` | The same flags |
+| Change the agent's job, never loosen the expectations | `/lab new` is told to change the `## Job` in `agent.md` after a failed run, and never the expectations unless you agree one was wrong |
+
+**What this build does not do.** The lesson's first two checks, "open a pane in the lab, run `ls`, take a screenshot, close the pane" and "run `/split` inside the lab", are free-form requests to a lab. This build only runs an agent against its expectations file, and its guest Main loads only the `/agent` extension, so `/split` is not there to test. The traps the isolation step ran into are written down in [TESTING.md](TESTING.md) under "Findings that changed the code".
 
 ## Tested
 

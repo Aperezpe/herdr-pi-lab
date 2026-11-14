@@ -85,7 +85,7 @@ export function labCompletions(prefix: string, roles: () => string[] = () => STA
 export function labHint(text: string): string | undefined {
 	if (!/^\/lab(?: |$)/.test(text) || /[\r\n]/.test(text)) return undefined;
 	const args = text.slice(4).trimStart();
-	if (!args) return text === '/lab' ? 'new|test|list|stop [Agent] · Space: examples' : 'new|test|list|stop [Agent] · ↑/↓ + Tab: insert example';
+	if (!args) return text === '/lab' ? 'new|test|doctor [Agent] · Space: examples' : 'new|test|doctor [Agent] · ↑/↓ + Tab: insert example';
 	if (/^(--help|-h)\s*$/.test(args)) return 'Show the guide without starting a lab';
 	const [sub, ...rest] = args.split(' ');
 	const arg = rest.join(' ');

@@ -31,6 +31,8 @@ test('accepting an agent completion through the native provider leaves a runnabl
 
 test('dim hints describe the next argument, only for single-line /lab', () => {
 	expect(labHint('/lab')).toContain('Space: examples');
+	expect(labHint('/lab')).toContain('new|test|doctor');
+	expect(labHint('/lab ')).toContain('new|test|doctor');
 	expect(labHint('/lab new ')).toContain('<Agent>');
 	expect(labHint('/lab test Critic --model ')).toBe('provider/id');
 	expect(labHint('/lab test Critic')).toContain('Enter: run the lab');
