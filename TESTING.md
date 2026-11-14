@@ -80,7 +80,7 @@ First real run: Pi 1.5.0 in RPC mode, `/lab suggest` sent as the prompt, in a fr
 
 ## Checks from lab-scenarios.md (2026-11-14)
 
-The two checks in the lesson's video, run with `--detached` only (no window was opened for these runs): hc 0.1.18 class core, Pi 1.5.0, lab agent on `anthropic/claude-haiku-5-5`. Test project: a three-file repository with the video's `lab-scenarios.md`.
+The two checks in the lesson's video, run with `--detached` only (no window was opened for these runs): hc 0.1.19, Pi 1.5.0, lab agent on `anthropic/claude-haiku-5-5`. Test project: a three-file repository with the video's `lab-scenarios.md`.
 
 | Run | Result | What it shows |
 |---|---|---|
