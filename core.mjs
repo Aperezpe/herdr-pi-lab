@@ -135,16 +135,39 @@ export function inheritLook(appHome, core) {
 
 // ---------- the guest project and Pi profile ----------
 
-// The agent under test must not read its own expectations or reports: roles/ and expectations stay out.
-const SKIP = /(^|\/)(agents|roles|reports|lab-reports|\.git|node_modules|\.pi|\.cache|dist|build|\.next|\.venv|__pycache__)(\/|$)|(^|\/)\.env|(auth|credentials?|secrets?|tokens?)\.(json|txt|ya?ml)$|\.(pem|key|p12)$/i;
-function copyProject(project, dest) {
+// What the lab copies, decided in one place (labCopies).
+// Left out everywhere: every expectations.md and lab-scenarios.md, reports, agents/ and roles/, Git and build
+// folders, secrets-looking files. The agent under test must never read a test: its own or another agent's.
+// The one exception: the files directly inside the tested agent's own folder (agents/<agent>/agent.md,
+// memories.md, glossary.md, owns.txt, whatever it keeps there) are copied, because that folder is the agent:
+// /agent opens agents/<name>/agent.md, and a job that says "the glossary beside this file" needs the glossary.
+// Still withheld from that folder: any file with "expectation" in its name, and every subfolder (reports/).
+const TESTS = /(^|\/)(expectations|lab-scenarios)\.md$/i;
+const AGENT_FOLDERS = /(^|\/)(agents|roles)(\/|$)/i;
+const SKIP = /(^|\/)(reports|lab-reports|\.git|node_modules|\.pi|\.cache|dist|build|\.next|\.venv|__pycache__)(\/|$)|(^|\/)\.env|(auth|credentials?|secrets?|tokens?)\.(json|txt|ya?ml)$|\.(pem|key|p12)$/i;
+/**
+ * Does this project file (a path relative to the project) go into the lab's copy?
+ * agentFolder is the tested agent's folder relative to the project ("agents/booking"); a check has none.
+ */
+export function labCopies(file, agentFolder) {
+  const f = String(file).replace(/\\/g, '/');
+  if (TESTS.test(f) || SKIP.test(f)) return false;
+  if (!AGENT_FOLDERS.test(f)) return true;
+  const own = String(agentFolder || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!/^(agents|roles)\/[^/]+$/i.test(own) || !f.toLowerCase().startsWith(own.toLowerCase() + '/')) return false;
+  const name = f.slice(own.length + 1);
+  return !name.includes('/') && !/expectation/i.test(name);
+}
+/** Copy the project for a lab. withheld: extra files (relative paths) that never go in, such as an expectations file under another name. */
+export function copyProject(project, dest, agentFolder, withheld = []) {
+  const never = new Set(withheld.map(w => String(w).replace(/\\/g, '/').toLowerCase()));
   mkdir(dest);
   let files = [];
   const git = spawnSync('git', ['-C', project, 'ls-files', '-co', '--exclude-standard', '-z'], { encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (git.status === 0) files = git.stdout.split('\0').filter(Boolean).filter(f => !/(^|\/)(expectations|lab-scenarios)\.md$/i.test(f));
+  if (git.status === 0) files = git.stdout.split('\0').filter(Boolean);
   let bytes = 0, copied = 0;
   for (const f of files) {
-    if (SKIP.test(f)) continue;
+    if (!labCopies(f, agentFolder) || never.has(f.toLowerCase())) continue;
     const a = path.join(project, f); let s; try { s = fs.lstatSync(a); } catch { continue; }
     if (!s.isFile() || s.size > 2 << 20) continue;
     if ((bytes += s.size) > 40 << 20) break;
@@ -339,7 +362,7 @@ export function doctorText(d) {
 async function openLab(id, project, o, progress) {
   const d = dirs(id);
   progress('Copying the project');
-  const copied = copyProject(project, d.project);
+  const copied = copyProject(project, d.project, o.agentFolder, o.withheld);
   profile(d.agent);
   mkdir(path.join(d.config, 'herdr-core'));
   fs.writeFileSync(path.join(d.config, 'herdr-core', 'config.toml'), 'notes = false\n');
@@ -392,7 +415,8 @@ export async function start(o, progress = () => {}) {
   writeRun(id, base);
   writeState(id, { id, role, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
   try {
-    await openLab(id, project, { background: o.background }, progress);
+    // The tested agent's own folder goes into the copy (its job, glossary, memories), never its expectations: see labCopies.
+    await openLab(id, project, { background: o.background, agentFolder: path.relative(project, loc.dir), withheld: [path.relative(project, loc.file)] }, progress);
     fs.cpSync(ext, path.join(d.root, 'role-extension'), { recursive: true, filter: s => !/node_modules|\.git$/.test(s) });
 
     progress('Starting guest Main');

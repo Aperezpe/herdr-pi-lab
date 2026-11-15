@@ -105,3 +105,18 @@ No window was opened for these runs. Pi 1.5.0, hc 0.1.19, a sandbox with its own
 **Not yet run:** a lab in a Herdr window since the project copy moved to `~/.lab/<project>` and the Herdr Lab app copy to `~/.lab/app`.
 
 Finding that changed the code: the lab looked for installed extensions only in `~/.pi/agent`, so a Pi that keeps its settings elsewhere (`PI_CODING_AGENT_DIR`) had `/split` and `/agent` installed and the lab did not find them. It now looks in Pi's own settings folder.
+
+## 0.5.0: the tested agent gets its own files (2026-11-15)
+
+Why: `/lab test booking` on a RentAPlace branch with domain agents (`agents/booking/` holds `agent.md`, `glossary.md`, `memories.md`, `owns.txt`, `expectations.md`) failed 3 of 4 in 0.4.0. The copy left all of `agents/` out so the agent could not read its test, which also took away the glossary and memories its job tells it to answer from. The agent said so: "the booking agent's glossary and memories files aren't in the repo".
+
+One run in a real Herdr Lab window (lab-c18e9e; Herdr app 0.1.14, hc 0.1.19, Pi 1.5.0; guest and Tester `anthropic/claude-sonnet-5-5`, the agent on `/agent`'s fast default), started with `lab.mjs test booking --wait --keep`:
+
+| Checked | Result |
+|---|---|
+| The copy's `agents/` | Only `agents/booking/agent.md`, `glossary.md`, `memories.md`, `owns.txt`. No `expectations.md` anywhere in the copy, no `agents/pricing/`, and no text from the expectations file in any copied file. |
+| What the agent did (its Pi session) | Five tool calls: it found and read `agents/booking/glossary.md` and `memories.md`. No call named an expectations file, and no expectation text appears in its session. |
+| Verdicts | 3 of 4 passed, each answer citing the glossary or a memory. Expectation 4 failed on the agent's wording ("Decider: Host tools owner" where the expectation wants "a product decision"), not on a missing file. |
+| After `lab.mjs stop` | `~/.lab` held only `app`; `leftovers` was empty. |
+
+**Not yet run:** `/lab test <agent>` typed into Pi since this change (the same `start` call), an agent in the old `roles/` folder, a repeat of this run, and Day 1's Critic in a window on 0.5.0 (its folder holds only expectations, so its copy is unchanged; unit tests cover that).
