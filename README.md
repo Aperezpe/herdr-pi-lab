@@ -40,6 +40,24 @@ To update: `pi update --extensions`, then `/reload`. To remove: `pi remove git:g
 
 Work in a project of your own, or clone the sample project the video uses: `git clone https://github.com/johnlindquist/rentaplace`. Start Pi in the project, inside a Herdr pane.
 
+The pictures are real captures of a second Herdr window running Pi in a fresh clone of [RentAPlace](https://github.com/johnlindquist/rentaplace), with this extension, `/split` and `/agent` installed from GitHub. The model's wording will differ on your machine.
+
+**The hint.** Type `/lab` and the three things it does appear as dim text after the cursor.
+
+![Main with /lab typed: dim text reads <new|test|doctor>, then Space: examples](docs/screenshots/lab-hint.png)
+
+**The doctor.** `/lab doctor` checks everything a lab needs before you rely on it: Herdr, its command line, the app copy the lab window runs, Pi, and whether `/agent` and `/split` are installed.
+
+![The output of /lab doctor: Lab workspace ready · lab harness ready, then a check mark line each for platform, hc, the Herdr app, the lab app copy, pi, the /agent extension and the /split extension, ending Ready for /lab test or /lab new](docs/screenshots/lab-doctor.png)
+
+**A check, asked for in plain words.** Main calls the lab, a lab agent does the steps in a separate window, and the result comes back as one line per step with ✓ or ✗ and what was actually seen.
+
+![Main after the request Use the lab to run the first check in lab-scenarios.md: lab agent · scenario 1 passed · 4 of 4 steps with four check marks, then Main's summary of each step and the path of the full report](docs/screenshots/lab-check.png)
+
+**The lab window itself.** The steps ran here, not in your workspace: a second Herdr window named Lab, working in a copy of the project at `~/.lab/<project>`. This picture is the screenshot the lab agent saved for step 3 of that check (the computer's name is painted out).
+
+![The Herdr Lab window: two shell panes in ~/.lab/rentaplace, the right one showing the output of ls](docs/screenshots/lab-window.png)
+
 | Step | Type | What you should see |
 |---|---|---|
 | 1 | `/lab` | Dim text after the cursor: `<new\|test\|doctor>`. Add a space and Pi lists examples; **↑/↓** and **Tab** insert one. |
