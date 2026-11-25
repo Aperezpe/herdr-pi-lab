@@ -38,14 +38,20 @@ export default function (pi: ExtensionAPI) {
 	};
 	// A widget run has three things to read: Main (a terminal), the widget panel (its text) and Files (project changes).
 	const isWidget = (run: any) => run.kind === 'widget';
-	const paneOf = (run: any, name: string): { name: string; terminal?: string; kind: 'terminal' | 'widget' | 'files' } => {
+	// A mod run has Main (a terminal) and the Window: its spaces, tabs, overlays and toasts as the lab reads them.
+	const isMod = (run: any) => run.kind === 'mod';
+	const paneOf = (run: any, name: string): { name: string; terminal?: string; kind: 'terminal' | 'widget' | 'files' | 'window' | 'mod' } => {
 		const want = String(name).trim().toLowerCase();
+		if (isMod(run)) {
+			if (want === 'window') return { name: 'Window', kind: 'window' };
+			if (want === run.mod.name.toLowerCase() || want === 'mod') return { name: run.mod.name, kind: 'mod' };
+		}
 		if (isWidget(run)) {
 			if (want === run.widget.name.toLowerCase() || want === 'widget') return { name: run.widget.name, kind: 'widget' };
 			if (want === 'files') return { name: 'Files', kind: 'files' };
 		}
 		const key = Object.keys(run.terminals).find(k => k !== 'Tester' && k.toLowerCase() === want);
-		const all = [...Object.keys(run.terminals).filter(k => k !== 'Tester'), ...(isWidget(run) ? [run.widget.name, 'Files'] : [])];
+		const all = [...Object.keys(run.terminals).filter(k => k !== 'Tester'), ...(isWidget(run) ? [run.widget.name, 'Files'] : []), ...(isMod(run) ? ['Window'] : [])];
 		if (!key) throw Error(`No guest pane called "${name}". Panes: ${all.join(', ')}.`);
 		return { name: key, terminal: run.terminals[key] as string, kind: 'terminal' };
 	};
@@ -54,6 +60,7 @@ export default function (pi: ExtensionAPI) {
 		const pane = paneOf(run, name);
 		if (pane.kind === 'widget') return core.widgetHistory(id);
 		if (pane.kind === 'files') return core.projectChanges(id);
+		if (pane.kind === 'window' || pane.kind === 'mod') return core.modHistory(id) + '\n--- now ---\n' + core.modWindow(id);
 		return core.screen(id, pane.terminal!) + '\n' + core.transcriptText(core.transcript(id, pane.name));
 	};
 	const guests = (run: any) => Object.entries(run.terminals).filter(([k]) => k !== 'Tester').map(([, t]) => t as string);
@@ -82,6 +89,7 @@ export default function (pi: ExtensionAPI) {
 			const { id, run, spec } = load();
 			const it = item(spec, p.expectation);
 			if (isWidget(run)) return widgetDo(id, run, it, p.from || 1);
+			if (isMod(run)) return modDo(id, run, it, p.from || 1);
 			update(s => { for (const x of s.items) x.running = x.id === it.id; });
 			const log: string[] = [];
 			const names = Object.keys(run.terminals).filter(k => k !== 'Tester');
@@ -134,6 +142,51 @@ export default function (pi: ExtensionAPI) {
 		return text(`${it.id} · ${it.title}\n${log.join('\n') || 'no more steps'}${r.settled ? '' : '\n(the widget or Main was still busy after 5 minutes)'}\nAll Do steps are done; judge now.\n\nCheck:\n${checks.join('\n')}\n\n${widgetScreens(id, run, seen)}`, `${it.id} · ${it.title}: steps done, checking`);
 	}
 
+	const modCommands = (run: any) => Object.entries(run.mod.commands).map(([c, what]) => `${c}: ${what}`).join('; ');
+	function modScreens(id: string, run: any, seen: number, since: number) {
+		const fresh = core.transcript(id, 'Main').slice(seen);
+		const hist = core.modHistory(id).slice(since);
+		return [`--- Window: shown during this step ---\n${hist.trim() ? clip(hist, 6000) : '(nothing new)'}\n--- Window: now ---\n${core.modWindow(id)}`,
+			`--- Main: shown during this step ---\n${fresh.length ? clip(core.transcriptText(fresh), 3000) : '(nothing new)'}`].join('\n\n');
+	}
+	async function modDo(id: string, run: any, it: any, from: number) {
+		const all = steps(it), log: string[] = [];
+		if (from > all.length + 1) throw Error(`Expectation ${it.id} has ${all.length} Do step(s).`);
+		if (from === 1) update(s => { for (const x of s.items) { x.running = x.id === it.id; if (x.id === it.id) { x.seen = core.transcript(id, 'Main').length; x.since = core.modHistory(id).length; x.reached = 0; } } });
+		const st = load().state.items.find((x: any) => x.id === it.id) ?? {};
+		for (let n = from; n <= all.length; n++) {
+			const step = all[n - 1], pane = paneOf(run, step.pane);
+			update(s => { const x = s.items.find((y: any) => y.id === it.id); if (x) x.reached = n; });
+			if (pane.kind === 'mod') {
+				const next = `Step ${n} of ${all.length} is for the ${run.mod.name} mod: "${step.text}". Do it now with lab_mod (its commands: ${modCommands(run)}), then call lab_do {"expectation": ${it.id}, "from": ${n + 1}}.`;
+				return text(`${it.id} · ${it.title}\n${[...log, next].join('\n')}\n\n--- Window: now ---\n${core.modWindow(id)}`, `${it.id} · step ${n}: for the mod: ${step.text}`);
+			}
+			if (pane.kind !== 'terminal') throw Error(`Do lines go to Main or ${run.mod.name}, not ${step.pane} (line ${step.line}).`);
+			const r = await core.type(id, pane.terminal!, step.text, [pane.terminal!]);
+			log.push(`step ${n}: typed in Main: ${step.text}${r.settled ? '' : '  (still working after 4 minutes)'}`);
+		}
+		update(s => { const x = s.items.find((y: any) => y.id === it.id); if (x) x.reached = all.length; });
+		const checks = it.lines.filter((l: any) => l.kind !== 'do').map((l: any) => `${l.kind[0].toUpperCase() + l.kind.slice(1)} (${l.pane}): ${l.text}`);
+		return text(`${it.id} · ${it.title}\n${log.join('\n') || 'no more steps'}\nAll Do steps are done; judge now.\n\nCheck:\n${checks.join('\n')}\n\n${modScreens(id, run, st.seen ?? 0, st.since ?? 0)}`, `${it.id} · ${it.title}: steps done, checking`);
+	}
+
+	pi.registerTool({
+		name: 'lab_mod', label: 'Lab · mod',
+		description: 'Use the mod under test the way a person does, through one of its own commands (the lab sends "<mod>.<command>" to it). The commands and what each stands for come from the mod and are listed when a Do line is for the mod. Waits until the window has changed and gone quiet (up to 4 minutes), then returns every view of the window during the step and what Main showed.',
+		parameters: Type.Object({ command: Type.String({ minLength: 1, maxLength: 1000, description: 'The command, e.g. ask pick up my next ticket' }) }),
+		renderResult,
+		async execute(_id, p) {
+			const { id, run } = load();
+			if (!isMod(run)) throw Error('This lab is not testing a mod.');
+			const verbs = Object.keys(run.mod.commands).map(c => c.split(/\s+/)[0]);
+			const verb = p.command.trim().split(/\s+/)[0];
+			if (!verbs.includes(verb)) throw Error(`The ${run.mod.name} mod has no command "${verb}". Its commands: ${modCommands(run)}.`);
+			const seen = core.transcript(id, 'Main').length, since = core.modHistory(id).length;
+			const r = await core.modSend(id, p.command.trim());
+			return text(`sent ${run.mod.name}.${p.command.trim()}${r.changed ? '' : '  (the window did not change within 4 minutes)'}\n\n${modScreens(id, run, seen, since)}`, `${run.mod.name}: ${p.command.trim().slice(0, 80)}`);
+		},
+	});
+
 	pi.registerTool({
 		name: 'lab_widget', label: 'Lab · widget',
 		description: 'Use the widget panel the way a person does: press its own keys (press: ["down", "y"]; one letter or digit, up, down or enter) or click one of its buttons (click: an action label such as "Keep", "Refresh", or a row such as "item 1"). Waits until the widget and Main are quiet, then returns what the widget shows, what Main showed and the project file changes.',
@@ -174,7 +227,7 @@ export default function (pi: ExtensionAPI) {
 		renderResult,
 		async execute(_id, p) {
 			const { id, run } = load(); const pane = paneOf(run, p.pane);
-			if (pane.kind !== 'terminal') return text(`--- ${pane.name}: ${pane.kind === 'widget' ? 'every view it has shown, oldest first' : 'project changes'} ---\n${clip(shownOn(id, run, pane.name), 12000) || '(nothing yet)'}`, `read ${pane.name}`);
+			if (pane.kind !== 'terminal') return text(`--- ${pane.name}: ${pane.kind === 'widget' ? 'every view it has shown, oldest first' : pane.kind === 'files' ? 'project changes' : 'every view of the window, oldest first'} ---\n${clip(shownOn(id, run, pane.name), 12000) || '(nothing yet)'}`, `read ${pane.name}`);
 			return text(`--- ${pane.name}: shown since it opened ---\n${clip(core.transcriptText(core.transcript(id, pane.name)), 12000) || '(nothing yet)'}\n--- ${pane.name}: end of screen now ---\n${tail(core.screen(id, pane.terminal), p.lines || 30)}`, `read ${pane.name}`);
 		},
 	});
@@ -239,6 +292,7 @@ export default function (pi: ExtensionAPI) {
 			if (open.length) throw Error(`Still unchecked: ${open.map((i: any) => `${i.id} · ${i.title}`).join(', ')}.`);
 			const screens: Record<string, string> = Object.fromEntries(Object.keys(run.terminals).filter(k => k !== 'Tester').map(k => [k, core.transcriptText(core.transcript(id, k)) || core.screen(id, run.terminals[k])]));
 			if (isWidget(run)) { screens[run.widget.name] = core.widgetHistory(id); screens.Files = core.projectChanges(id); }
+			if (isMod(run)) screens.Window = core.modHistory(id) + '\n--- now ---\n' + core.modWindow(id);
 			// Show the finished checklist first, so the window screenshot in the report shows the result.
 			update(s => { s.result = s.items.every((i: any) => i.verdict === 'pass') ? 'pass' : 'fail'; s.summary = p.summary; });
 			await new Promise(r => setTimeout(r, 1500));

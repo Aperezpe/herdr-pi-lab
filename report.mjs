@@ -27,10 +27,12 @@ export function writeReport(id, { summary, screens }) {
     '',
     summary,
     '',
-    run.kind === 'widget'
+    run.kind === 'mod'
+      ? `Mod: \`${run.mod.name}\` in the lab window${run.mod.layout ? ` with the \`${run.mod.layout}\` layout` : ''} · Installed: ${run.mod.installed.join(', ')} · Guest Main model: \`${run.model}\` · Tester model: \`${run.testerModel}\``
+      : run.kind === 'widget'
       ? `Widget: \`${run.widget.name}\` on ${run.widget.sample ? 'its saved sample' : run.widget.live ? 'live data inside the lab ("lab": "live")' : 'its command line, run in the project copy'} · Widget model: \`${run.widget.model}\`${run.widget.override ? ` (--widget-model, this run only; widget.json says \`${run.widget.settingsModel}\`)` : ''} · Guest Main model: \`${run.model}\` · Tester model: \`${run.testerModel}\``
       : `Role: \`${run.command || '/agent ' + run.role}\`${run.customJob ? ' (job from agent.md)' : ' (starter agent)'} · Guest model: \`${run.model}\` · Tester model: \`${run.testerModel}\``,
-    `Expectations: \`${path.relative(run.project, run.expectations)}\``,
+    `Expectations: \`${run.kind === 'mod' ? run.expectations : path.relative(run.project, run.expectations)}\``,
     '',
   ];
   for (const i of state.items) {

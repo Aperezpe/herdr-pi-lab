@@ -20,10 +20,10 @@ test('Agent means the agent under test; See/Absent keep exact quoted text', () =
 });
 
 test('mistakes name the line and say how to fix them', () => {
-	expect(() => parse('## A\nCheck: something', 'Critic')).toThrow(/Line 2: start with Do, Run, Expect/);
+	expect(() => parse('## A\nCheck: something', 'Critic')).toThrow(/Line 2: start with Do, Run, Layout, Mod, Expect/);
 	expect(() => parse('## A\nDo (Main): hi', 'Critic')).toThrow(/has no check/);
 	expect(() => parse('# Only a title', 'Critic')).toThrow(/No expectations yet/);
-	expect(() => parse('## Before\nExpect: x\n## A\nExpect: y', 'Critic')).toThrow(/Before section only holds Do and Run/);
+	expect(() => parse('## Before\nExpect: x\n## A\nExpect: y', 'Critic')).toThrow(/Before section only holds Do, Run, Layout and Mod/);
 	expect(() => parse('## A\nRun: rm -rf x\nExpect: y', 'Critic')).toThrow(/Line 2: Run lines belong under "## Before"/);
 });
 

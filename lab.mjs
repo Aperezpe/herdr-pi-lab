@@ -68,7 +68,7 @@ try {
       }
       // A widget in widgets/<name>/ with expectations, and no agent of that name, is tested as a widget.
       const w = locateWidget(project, pos[0] || '');
-      const start = w && !w.missing && locate(project, pos[0]).missing ? core.startWidget : core.start;
+      const start = /^mod:/i.test(pos[0] || '') ? core.startMod : w && !w.missing && locate(project, pos[0]).missing ? core.startWidget : core.start;
       const run = await start({ project, role: pos[0], model: flags.model, widgetModel: flags['widget-model'], roleModel: flags['agent-model'] || flags['role-model'], thinking: flags.thinking, testerModel: flags['tester-model'], testerThinking: flags['tester-thinking'] || flags.thinking, background: flags.behind, keepOnError: flags['keep-on-error'], roleExtension: (flags['agent-extension'] || flags['role-extension']) },
         step => process.stderr.write(`· ${step}\n`));
       if (!flags.wait) { print({ started: true, run: run.id, terminals: run.terminals }); break; }

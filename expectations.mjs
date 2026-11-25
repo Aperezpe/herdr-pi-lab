@@ -3,14 +3,17 @@
 // "Never" lines need the tester's judgment.
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
-export const KINDS = ['do', 'run', 'expect', 'never', 'see', 'absent'];
+export const KINDS = ['do', 'run', 'layout', 'mod', 'expect', 'never', 'see', 'absent'];
 export const SETUP_TITLES = /^(before|setup|before the role opens)$/i;
 
 export const FORMAT = `# <Agent> expectations
 
 ## Before
 Run: <optional: a shell command the lab runs in the project copy first, e.g. to plant a bug>
+Layout: <optional, mod tests: a layout from ~/.config/herdr-app/layouts the lab window uses, with every mod it names>
+Mod: <optional, mod tests: one more mod from ~/.config/herdr-app/mods to install in the lab window>
 Do (Main): <optional: a prompt Main gets before the role opens>
 
 ## <Expectation title>
@@ -48,19 +51,24 @@ export function parse(markdown, role = 'Agent') {
       else { const item = { id: out.items.length + 1, title, lines: [] }; out.items.push(item); section = item; }
       continue;
     }
-    const m = line.match(/^(Do|Run|Expect|Never|See|Absent)\s*(?:\(([^)]+)\))?\s*:\s*(.+)$/i);
+    const m = line.match(/^(Do|Run|Layout|Mod|Expect|Never|See|Absent)\s*(?:\(([^)]+)\))?\s*:\s*(.+)$/i);
     if (!m) {
       if (section && section.lines.length && /^\s/.test(raw)) { section.lines.at(-1).text += ' ' + line.trim(); continue; }
       if (!section) continue; // prose before the first section is commentary
-      throw Error(`Line ${n}: start with Do, Run, Expect, Never, See or Absent, e.g. "Expect (${role}): asks which homes it covers".`);
+      throw Error(`Line ${n}: start with Do, Run, Layout, Mod, Expect, Never, See or Absent, e.g. "Expect (${role}): asks which homes it covers".`);
     }
     if (!section) throw Error(`Line ${n}: put "${m[1]}" under a "## Title" heading.`);
     const kind = m[1].toLowerCase();
     let pane = (m[2] || (kind === 'do' ? 'Main' : 'Agent')).trim();
     if (/^(agent|role)$/i.test(pane)) pane = role; // (Role) is the old spelling of (Agent)
     if (/^main$/i.test(pane)) pane = 'Main';
-    if (section.setup && kind !== 'do' && kind !== 'run') throw Error(`Line ${n}: the Before section only holds Do and Run lines.`);
-    if (kind === 'run' && !section.setup) throw Error(`Line ${n}: Run lines belong under "## Before"; the lab runs them before the first prompt.`);
+    if (section.setup && !['do', 'run', 'layout', 'mod'].includes(kind)) throw Error(`Line ${n}: the Before section only holds Do, Run, Layout and Mod lines.`);
+    if (['run', 'layout', 'mod'].includes(kind) && !section.setup) throw Error(`Line ${n}: ${m[1]} lines belong under "## Before"; the lab sets them up before the first prompt.`);
+    if (kind === 'layout' || kind === 'mod') {
+      const name = m[3].trim();
+      if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(name)) throw Error(`Line ${n}: ${m[1]} takes one name, e.g. "${m[1]}: main-editor".`);
+      section.lines.push({ kind, pane: 'lab', text: name, line: n }); continue;
+    }
     if (kind === 'run') { section.lines.push({ kind, pane: 'lab', text: m[3].trim(), line: n }); continue; }
     const text = kind === 'see' || kind === 'absent' ? strip(m[3]) : m[3].trim();
     section.lines.push({ kind, pane, text, line: n });
@@ -112,6 +120,17 @@ export function locateWidget(project, name) {
   if (!fs.existsSync(path.join(dir, 'widget.json'))) return undefined;
   const file = path.join(dir, 'expectations.md');
   return { dir, file, config: path.join(dir, 'widget.json'), sample: path.join(dir, 'sample.txt'), ...(fs.existsSync(file) ? {} : { missing: true }) };
+}
+
+/**
+ * Find a mod to test: <herdr app home>/mods/<name>/ with expectations.md beside its main.js.
+ * Undefined when there is no such mod; missing is set when it has no expectations yet.
+ */
+export function locateMod(name, appHome = process.env.HERDR_APP_HOME || path.join(os.homedir(), '.config', 'herdr-app')) {
+  const dir = path.join(appHome, 'mods', slug(name));
+  if (!fs.existsSync(path.join(dir, 'main.js')) && !fs.existsSync(path.join(dir, 'link.js'))) return undefined;
+  const file = path.join(dir, 'expectations.md');
+  return { dir, file, ...(fs.existsSync(file) ? {} : { missing: true }) };
 }
 
 /** A custom agent's job is the "## Job" section of agent.md beside the expectations. */

@@ -9,7 +9,7 @@
   "repository": {"type": "git", "url": "git+https://github.com/johnlindquist/herdr-pi-lab.git"},
   "pi": {"extensions": ["./index.ts"]},
   "bin": {"herdr-pi-lab": "./lab.mjs"},
-  "files": ["index.ts", "guidance.ts", "core.mjs", "expectations.mjs", "scenarios.mjs", "report.mjs", "new-agent.md", "suggest.md", "lab.mjs", "tester/", "checker/", "examples/", "README.md", "LICENSE"],
+  "files": ["index.ts", "guidance.ts", "core.mjs", "expectations.mjs", "scenarios.mjs", "report.mjs", "new-agent.md", "suggest.md", "lab.mjs", "tester/", "checker/", "mods/", "examples/", "README.md", "LICENSE"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.4.0 <2",
     "@earendil-works/pi-tui": ">=1.4.0 <2"

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { parse, locate, locateWidget, job as roleJob, access as roleAccess, slug, panes as extraPanes } from './expectations.mjs';
+import { parse, locate, locateWidget, locateMod, job as roleJob, access as roleAccess, slug, panes as extraPanes } from './expectations.mjs';
 
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(HERE, 'package.json'), 'utf8')).version; } catch { return 'unknown'; } })();
@@ -388,7 +388,14 @@ async function openLab(id, project, o, progress) {
   hc(id, ['server', 'start'], { timeout: 20000 });
   inheritLook(d.app, which('hc'));
   // Mods the run needs (a widget's panel) go into the lab's own app folder only, never the everyday one.
-  for (const m of o.mods || []) fs.cpSync(m.from, path.join(d.app, 'mods', m.name), { recursive: true });
+  for (const m of o.mods || []) fs.cpSync(m.from, path.join(d.app, 'mods', m.name), { recursive: true, filter: src => !/(^|\/)(reports|expectations\.md)(\/|$)/.test(path.relative(m.from, src)) });
+  for (const l of o.layouts || []) {
+    mkdir(path.join(d.app, 'layouts'));
+    const to = path.join(d.app, 'layouts', `${l.name}.json`);
+    fs.copyFileSync(l.from, to);
+    // The layout root's "toast" picks the mod that shows notifications; lab-toast also records them for the Tester.
+    if (o.recordToasts) writeJson(to, { ...readJson(to, {}), toast: 'lab-toast' });
+  }
 
   progress('Opening the Herdr Lab window');
   const e = env(id), log = path.join(d.logs, 'app.log');
@@ -400,6 +407,10 @@ async function openLab(id, project, o, progress) {
   // The first launch of a freshly signed copy can take a while for macOS to verify.
   await until(() => appJson(id, ['status'], { check: false, timeout: 5000 }), 120, 'the Herdr Lab window');
   writeRun(id, { appPid: findAppPid(id) });
+  if (o.layout) {
+    app(id, ['do', 'layout.switch', JSON.stringify({ name: o.layout })], { timeout: 15000 });
+    await until(() => appJson(id, ['status'], { check: false, timeout: 5000 })?.layout === o.layout, 30, `the ${o.layout} layout`);
+  }
 }
 
 /**
@@ -920,4 +931,143 @@ export async function startWidget(o, progress = () => {}) {
   }
 }
 
-export { slug, parse, locate, locateWidget };
+// ---------- mods ----------
+
+/** Every mod a layout names: content mods, pane header mods, its terminal menu and link handlers. */
+export function layoutMods(layoutFile) {
+  const out = new Set();
+  const walk = n => {
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (!n || typeof n !== 'object') return;
+    for (const [k, v] of Object.entries(n)) {
+      if ((k === 'mod' || k === 'terminal_menu') && typeof v === 'string') out.add(v);
+      else if (k === 'link_handlers' && Array.isArray(v)) v.filter(x => typeof x === 'string').forEach(x => out.add(x));
+      else walk(v);
+    }
+  };
+  walk(readJson(layoutFile, {}));
+  return [...out];
+}
+
+/** The mods and layout a mod test installs in the lab window, from the everyday app home only. */
+export function modSetup(spec, name, appHome = dailyAppHome()) {
+  const layouts = spec.before.filter(s => s.kind === 'layout').map(s => s.text);
+  if (layouts.length > 1) throw Error('A mod test uses one Layout line.');
+  const want = new Set([name, ...spec.before.filter(s => s.kind === 'mod').map(s => s.text)]);
+  const out = { mods: [], layouts: [], layout: layouts[0] };
+  if (out.layout) {
+    const file = path.join(appHome, 'layouts', `${out.layout}.json`);
+    if (!fs.existsSync(file)) throw Error(`No layout ${out.layout}: ${file} is missing.`);
+    out.layouts.push({ name: out.layout, from: file });
+    for (const m of layoutMods(file)) if (fs.existsSync(path.join(appHome, 'mods', m))) want.add(m);
+  }
+  for (const m of want) {
+    const from = path.join(appHome, 'mods', m);
+    if (!fs.existsSync(from)) throw Error(`No mod ${m}: ${from} is missing.`);
+    out.mods.push({ name: m, from });
+  }
+  return out;
+}
+
+const WINDOW_HISTORY = id => path.join(dirs(id).root, 'window-history.txt');
+/** What the lab window shows that a tester can quote: its spaces and tabs, the layout and any overlays or toasts. */
+export function modWindow(id) {
+  const ls = appJson(id, ['ls'], { check: false, timeout: 10000 }) || {};
+  const st = appJson(id, ['status'], { check: false, timeout: 10000 }) || {};
+  const spacesText = (ls.spaces || []).map(sp => `space "${sp.name}"${sp.active ? ' (shown)' : ''}: ${(sp.tabs || []).map(t => `tab "${t.name ?? t.index}"`).join(', ') || 'no tabs'}`);
+  const overlays = (st.overlays || []).map(o => `overlay ${typeof o === 'string' ? o : JSON.stringify(o)}`);
+  let toasts = [];
+  try { toasts = fs.readFileSync(path.join(dirs(id).app, 'lab-toasts.txt'), 'utf8').split('\n').filter(Boolean).map(t => `toast ${t}`); } catch {}
+  const r = readRun(id);
+  const toastNote = r?.mod?.layout ? (toasts.length ? toasts : ['no toasts yet']) : ['(toast text is recorded only when the test names a Layout)'];
+  return [`layout: ${st.layout ?? '?'}`, ...spacesText, ...(overlays.length ? overlays : ['no overlays open']), ...toastNote, ...(st.errors?.length ? [`errors: ${JSON.stringify(st.errors)}`] : [])].join('\n');
+}
+export const modHistory = id => { try { return fs.readFileSync(WINDOW_HISTORY(id), 'utf8'); } catch { return ''; } };
+function noteWindow(id, why) {
+  const now = modWindow(id), hist = modHistory(id), last = hist.split(/^--- .* ---$/m).pop()?.trim();
+  if (last === now.trim() && !why) return false;
+  fs.appendFileSync(WINDOW_HISTORY(id), `--- ${new Date().toISOString().slice(11, 19)}${why ? ' · ' + why : ''} ---\n${now}\n`);
+  return true;
+}
+/**
+ * Send one of the mod's own commands ("<mod>.<command>", as its nextCommand() receives it), then watch the
+ * window until it has changed and gone quiet, or seconds pass. Every distinct view goes into the window history.
+ */
+export async function modSend(id, command, { seconds = 240, quiet = 8 } = {}) {
+  const r = readRun(id), name = r.mod.name;
+  noteWindow(id, `the Tester sent ${name}.${command}`);
+  app(id, ['do', `${name}.${command}`], { timeout: 15000 });
+  const end = Date.now() + seconds * 1000;
+  let changed = false, lastChange = Date.now();
+  while (Date.now() < end) {
+    await sleep(1000);
+    if (noteWindow(id)) { changed = true; lastChange = Date.now(); }
+    if (changed && Date.now() - lastChange > quiet * 1000) break;
+  }
+  return { changed, settled: Date.now() < end, window: modWindow(id) };
+}
+
+/**
+ * Start a lab for one mod: copy the project, install the mod (and the Layout and Mod lines' mods) in the lab
+ * window only, switch to the layout, open guest Main in the project copy, run the Before steps, then open the
+ * Tester below Main. The Tester uses the mod only through the commands its mod.json lists under "lab".
+ */
+export async function startMod(o, progress = () => {}) {
+  const project = path.resolve(o.project || process.cwd());
+  const name = slug(String(o.role).replace(/^mod:/i, ''));
+  const loc = locateMod(name);
+  if (!loc) throw Error(`No mod ${name}: ${path.join(dailyAppHome(), 'mods', name)} has no main.js.`);
+  if (loc.missing) throw Error(`No expectations for the ${name} mod yet. Write ${loc.file}.`);
+  const markdown = fs.readFileSync(loc.file, 'utf8');
+  const spec = parse(markdown, name);
+  const setup = modSetup(spec, name);
+  const commands = readJson(path.join(loc.dir, 'mod.json'), {})?.lab?.commands || {};
+  if (!Object.keys(commands).length) throw Error(`${name}/mod.json lists no "lab": {"commands": {...}}: the Tester needs the mod's commands to use it.`);
+  if (!o.model) throw Error('Choose the model guest Main uses (provider/id).');
+  const piBin = piCommand();
+  if (!which('hc')) throw Error('hc not on PATH.');
+
+  const id = 'lab-' + randomBytes(3).toString('hex');
+  const projectName = claim(id, project);
+  const d = dirs(id);
+  mkdir(d.root); mkdir(d.logs); mkdir(d.config); mkdir(d.sock);
+  fs.writeFileSync(path.join(d.root, 'expectations.md'), markdown);
+  writeRun(id, { id, version: VERSION, kind: 'mod', role: name, mod: { name, commands, layout: setup.layout, installed: setup.mods.map(m => m.name) }, project, projectName, expectations: loc.file, roleDir: loc.dir, model: o.model, testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} });
+  writeState(id, { id, kind: 'mod', role: name, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
+  try {
+    const mods = [...setup.mods, ...(setup.layout ? [{ name: 'lab-toast', from: path.join(HERE, 'mods', 'lab-toast') }] : [])];
+    await openLab(id, project, { background: o.background, mods, layouts: setup.layouts, layout: setup.layout, recordToasts: true }, progress);
+    progress('Starting guest Main');
+    const think = o.thinking ? ['--thinking', o.thinking] : [];
+    const mainArgv = [...piBin, '--no-extensions', '--tools', 'read,grep,find,ls', '--no-skills', '--no-prompt-templates', '--no-themes', '--name', 'Main', '--model', o.model, ...think];
+    const space = appJson(id, ['do', 'space.new', JSON.stringify({ machine: '', name: `Lab · ${name} mod`, folder: d.project, argv: mainArgv })], { timeout: 20000 });
+    if (!space?.terminal) throw Error('Herdr Lab did not confirm guest Main.');
+    const main = space.terminal;
+    hc(id, ['label', main, 'lab.pane=Main'], { check: false });
+    writeRun(id, { phase: 'main', terminals: { Main: main }, space: space.space });
+    await piReady(id, main, 90);
+    await before(id, spec, main, progress);
+    await sleep(3000); // the mod polls the focused space; give it a beat after setup
+    noteWindow(id, 'after setup');
+
+    progress('Opening the Tester');
+    const tools = ['lab_do', 'lab_mod', 'lab_look', 'lab_find', 'lab_verdict', 'lab_finish'].join(',');
+    const testerArgv = [...piBin, '--no-extensions', '-e', path.join(HERE, 'tester', 'index.ts'), '--tools', tools,
+      '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-mcp', '--no-session', '--name', 'Tester',
+      '--model', o.testerModel || o.model, ...(o.testerThinking ? ['--thinking', o.testerThinking] : []),
+      '--append-system-prompt', path.join(HERE, 'tester', 'mod-prompt.md'), '--lab-run', id, `Begin the black-box test of the ${name} mod.`];
+    const known = new Set(windowPanes(id).map(p => p.terminal));
+    appJson(id, ['do', 'pane.split', JSON.stringify({ pane: windowPanes(id).find(p => p.terminal === main)?.pane, direction: 'down', argv: testerArgv })], { timeout: 20000 });
+    const tester = await until(() => windowPanes(id).find(p => !known.has(p.terminal)), 30, 'the Tester pane');
+    hc(id, ['label', tester.terminal, 'lab.pane=Tester'], { check: false });
+    writeRun(id, { phase: 'testing', terminals: { Main: main, Tester: tester.terminal } });
+    progress('Tester running');
+    return readRun(id);
+  } catch (err) {
+    writeRun(id, { phase: 'failed', error: err.message });
+    if (!o.keepOnError) await stop(id).catch(() => {});
+    err.run = id; throw err;
+  }
+}
+
+export { slug, parse, locate, locateWidget, locateMod };

@@ -5,7 +5,7 @@ import { Type } from 'typebox';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as core from './core.mjs';
-import { FORMAT, locate, locateWidget, slug } from './expectations.mjs';
+import { FORMAT, locate, locateWidget, locateMod, slug } from './expectations.mjs';
 import { checkMessage, headline, isScenariosFile, resolveChecks, SCENARIOS_FORMAT } from './scenarios.mjs';
 import { installLabGuidance, labCompletions, labHelp, LAB_USAGE, STARTERS, suggestPrompt } from './guidance.ts';
 
@@ -39,6 +39,7 @@ export function isWidgetTest(cwd: string, name: string): boolean {
 }
 /** Where an agent's or a widget's reports go. */
 function reportsDir(cwd: string, name: string) {
+	if (/^mod:/i.test(name)) { const m = locateMod(name.slice(4)); if (m) return path.join(m.dir, 'reports'); }
 	const w = locateWidget(cwd, name);
 	return path.join(w && locate(cwd, name).missing ? w.dir : locate(cwd, name).dir, 'reports');
 }
@@ -154,7 +155,13 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 		const model = o.model || modelOf(ctx);
 		if (!model) throw Error('No model is selected. Choose one with /model, or pass --model provider/id.');
 		const options = { project: ctx.cwd, role: o.role, model, roleModel: o.roleModel, widgetModel: o.widgetModel, thinking: o.thinking || thinking(), testerModel: o.testerModel || model, testerThinking: o.testerModel ? undefined : (o.thinking || thinking()), background: !!o.background, roleExtension: o.roleExtension };
-		// A name in widgets/<name>/ with expectations is a widget; anything else is an agent.
+		// "mod:<name>" is a Herdr mod with expectations beside it; a name in widgets/<name>/ with expectations is a widget; anything else is an agent.
+		if (/^mod:/i.test(o.role)) {
+			const progress = (step: string) => { if (ctx.hasUI) ctx.ui.setWidget(MSG, [`Herdr Lab · ${o.role} · ${step}…`]); };
+			const run = await core.startMod(options, progress);
+			lastRun = run.id; watch(run.id);
+			return run;
+		}
 		const widget = isWidgetTest(ctx.cwd, o.role);
 		if (o.widgetModel && !widget) throw Error(`--widget-model is for widgets; ${o.role} is not a widget with expectations in widgets/.`);
 		if (widget && (o.roleModel || o.roleExtension)) throw Error('--agent-model and --agent-extension are for agents; a widget takes --widget-model.');
