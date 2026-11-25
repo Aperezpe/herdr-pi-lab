@@ -5,14 +5,14 @@ import { Type } from 'typebox';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as core from './core.mjs';
-import { FORMAT, locate, slug } from './expectations.mjs';
+import { FORMAT, locate, locateWidget, slug } from './expectations.mjs';
 import { checkMessage, headline, isScenariosFile, resolveChecks, SCENARIOS_FORMAT } from './scenarios.mjs';
 import { installLabGuidance, labCompletions, labHelp, LAB_USAGE, STARTERS, suggestPrompt } from './guidance.ts';
 
 const MSG = 'herdr-pi-lab';
 const NEW = 'herdr-pi-lab.new';
 const SUGGEST = 'herdr-pi-lab.suggest';
-const MARK: Record<string, string> = { pass: '✓', fail: '✗', running: '◐', pending: '○' };
+const MARK: Record<string, string> = { pass: '✓', fail: '✗', unproven: '?', running: '◐', pending: '○' };
 
 /** Agents in this project that already have expectations, for completion and /lab list. */
 export function projectRoles(cwd: string): string[] {
@@ -22,14 +22,32 @@ export function projectRoles(cwd: string): string[] {
 		if (!fs.existsSync(root)) continue;
 		for (const n of fs.readdirSync(root)) if (fs.existsSync(path.join(root, n, 'expectations.md'))) out.push(titleOf(path.join(root, n), n));
 	}
-	return [...new Set(out)];
+	return [...new Set([...out, ...projectWidgets(cwd)])];
+}
+/** Widgets in this project that have expectations (widgets/<name>/expectations.md beside widget.json). */
+export function projectWidgets(cwd: string): string[] {
+	const root = path.join(cwd, 'widgets');
+	if (!fs.existsSync(root)) return [];
+	return fs.readdirSync(root).filter(n => { const w = locateWidget(cwd, n); return w && !w.missing; });
+}
+/** Is this name a widget to test? A widget with expectations, and no agent of the same name with expectations. */
+export function isWidgetTest(cwd: string, name: string): boolean {
+	const w = locateWidget(cwd, name);
+	if (!w) return false;
+	if (!locate(cwd, name).missing) throw Error(`"${name}" is both an agent and a widget with expectations here. Rename one of them.`);
+	return true;
+}
+/** Where an agent's or a widget's reports go. */
+function reportsDir(cwd: string, name: string) {
+	const w = locateWidget(cwd, name);
+	return path.join(w && locate(cwd, name).missing ? w.dir : locate(cwd, name).dir, 'reports');
 }
 function titleOf(dir: string, fallback: string) {
 	try { const h = fs.readFileSync(path.join(dir, 'expectations.md'), 'utf8').match(/^#\s+(\S+)/m); if (h && /^[a-z][\w-]*$/i.test(h[1])) return h[1]; } catch {}
 	return fallback[0].toUpperCase() + fallback.slice(1);
 }
 
-const VALUE_FLAGS: Record<string, string> = { '--model': 'model', '--agent-model': 'roleModel', '--tester-model': 'testerModel', '--agent-extension': 'roleExtension', '--thinking': 'thinking' };
+const VALUE_FLAGS: Record<string, string> = { '--model': 'model', '--agent-model': 'roleModel', '--widget-model': 'widgetModel', '--tester-model': 'testerModel', '--agent-extension': 'roleExtension', '--thinking': 'thinking' };
 export function parseTest(args: string[]) {
 	const o: Record<string, any> = { role: '' };
 	for (let i = 0; i < args.length; i++) {
@@ -108,7 +126,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 		const s = core.readState(id), r = core.readRun(id);
 		if (!s || !r) { ctx.ui.setWidget(MSG, undefined); return; }
 		const c = core.tally(s);
-		const head = s.result ? `Herdr Lab · ${r.role} · ${s.result === 'pass' ? 'all expectations met' : `${c.fail} of ${c.total} failed`} · /lab report ${r.role}`
+		const head = s.result ? `Herdr Lab · ${r.role} · ${s.result === 'pass' ? 'all expectations met' : `${c.fail} of ${c.total} failed${c.unproven ? `, ${c.unproven} unproven` : ''}`} · /lab report ${r.role}`
 			: `Herdr Lab · ${r.role} · ${r.phase === 'testing' ? `Tester checking ${c.pass + c.fail}/${c.total}` : r.phase}`;
 		ctx.ui.setWidget(MSG, [head, ...s.items.map((i: any) => `  ${MARK[i.verdict || (i.running ? 'running' : 'pending')]} ${i.id} · ${i.title}`)]);
 	}
@@ -122,8 +140,8 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			if (s.result && s.report) {
 				clearInterval(t); watching.delete(id);
 				const c = core.tally(s);
-				say([`**Herdr Lab · ${r.role}: ${s.result === 'pass' ? 'all expectations met' : `${c.fail} of ${c.total} failed`}**`, '',
-					...s.items.map((i: any) => `${MARK[i.verdict]} ${i.id} · ${i.title}${i.verdict === 'fail' && i.reason ? ` — ${i.reason}` : ''}`), '',
+				say([`**Herdr Lab · ${r.role}: ${s.result === 'pass' ? 'all expectations met' : `${c.fail} of ${c.total} failed${c.unproven ? `, ${c.unproven} unproven` : ''}`}**`, '',
+					...s.items.map((i: any) => `${MARK[i.verdict]} ${i.id} · ${i.title}${(i.verdict === 'fail' || i.verdict === 'unproven') && i.reason ? ` — ${i.reason}` : ''}`), '',
 					`Report: \`${path.relative(r.project, s.report)}\``, `The lab is still open for you to look. \`/lab stop\` closes it.`].join('\n'));
 				setTimeout(() => ctxRef?.ui.setWidget(MSG, undefined), 15000);
 			}
@@ -135,8 +153,13 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	async function test(ctx: ExtensionContext, o: Record<string, any>) {
 		const model = o.model || modelOf(ctx);
 		if (!model) throw Error('No model is selected. Choose one with /model, or pass --model provider/id.');
-		const options = { project: ctx.cwd, role: o.role, model, roleModel: o.roleModel, thinking: o.thinking || thinking(), testerModel: o.testerModel || model, testerThinking: o.testerModel ? undefined : (o.thinking || thinking()), background: !!o.background, roleExtension: o.roleExtension };
-		const run = await core.start(options, step => { if (ctx.hasUI) ctx.ui.setWidget(MSG, [`Herdr Lab · ${o.role} · ${step}…`]); });
+		const options = { project: ctx.cwd, role: o.role, model, roleModel: o.roleModel, widgetModel: o.widgetModel, thinking: o.thinking || thinking(), testerModel: o.testerModel || model, testerThinking: o.testerModel ? undefined : (o.thinking || thinking()), background: !!o.background, roleExtension: o.roleExtension };
+		// A name in widgets/<name>/ with expectations is a widget; anything else is an agent.
+		const widget = isWidgetTest(ctx.cwd, o.role);
+		if (o.widgetModel && !widget) throw Error(`--widget-model is for widgets; ${o.role} is not a widget with expectations in widgets/.`);
+		if (widget && (o.roleModel || o.roleExtension)) throw Error('--agent-model and --agent-extension are for agents; a widget takes --widget-model.');
+		const progress = (step: string) => { if (ctx.hasUI) ctx.ui.setWidget(MSG, [`Herdr Lab · ${o.role} · ${step}…`]); };
+		const run = widget ? await core.startWidget(options, progress) : await core.start(options, progress);
 		lastRun = run.id; watch(run.id);
 		return run;
 	}
@@ -183,7 +206,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 			}
 			if (sub === 'report') {
 				const role = args[0]; if (!role) throw Error('Which agent? e.g. /lab report Critic');
-				const dir = path.join(locate(ctx.cwd, role).dir, 'reports');
+				const dir = reportsDir(ctx.cwd, role);
 				const latest = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().at(-1) : undefined;
 				if (!latest) { ctx.ui.notify(`No reports for ${role} yet. Run /lab test ${role}.`, 'warning'); return; }
 				say(fs.readFileSync(path.join(dir, latest), 'utf8').split('## What each pane showed')[0].replace(/!\[[^\]]*\]\([^)]*\)\n?/g, '') + `\nFull report: \`${path.relative(ctx.cwd, path.join(dir, latest))}\``);
@@ -232,10 +255,10 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: 'lab',
 		label: 'Herdr Lab',
-		description: 'Run a check in the lab, or black-box test a Pi agent, in a private Herdr window. When asked to "use the lab" to run a check, call check: check {file?, check?, say?, behind?, detached?} runs checks from lab-scenarios.md (check: a number, "first", or words such as "/split"; none runs them all) or one described in plain words (say), waits for the lab agent, and returns every step as tried / expected / got with a quote from the screen; the lab is closed afterwards. Report the steps to the person as they came back; never restate a failed step as passed. Other actions: help; doctor; agents (expectations in this project); test {role, model?, testerModel?, behind?} starts a lab and returns its run ID at once; wait {run, seconds?} blocks until the Tester finishes (default 600 s) and returns every verdict with evidence; status {run}; list; report {role} (latest report text); stop {run}. The lab opens a visible Herdr Lab window. A start receipt is not a result: use wait. Write expectations in agents/<agent>/expectations.md (format in help).',
+		description: 'Run a check in the lab, or black-box test a Pi agent, in a private Herdr window. When asked to "use the lab" to run a check, call check: check {file?, check?, say?, behind?, detached?} runs checks from lab-scenarios.md (check: a number, "first", or words such as "/split"; none runs them all) or one described in plain words (say), waits for the lab agent, and returns every step as tried / expected / got with a quote from the screen; the lab is closed afterwards. Report the steps to the person as they came back; never restate a failed step as passed. Other actions: help; doctor; agents (expectations in this project); test {role, model?, testerModel?, widgetModel?, behind?} starts a lab and returns its run ID at once (role may name a widget in widgets/<name>/ with expectations.md; widgetModel sets its model for this run only); wait {run, seconds?} blocks until the Tester finishes (default 600 s) and returns every verdict with evidence; status {run}; list; report {role} (latest report text); stop {run}. The lab opens a visible Herdr Lab window. A start receipt is not a result: use wait. Write expectations in agents/<agent>/expectations.md (format in help).',
 		parameters: Type.Object({
 			action: Type.Union(['help', 'doctor', 'agents', 'roles', 'check', 'test', 'wait', 'status', 'list', 'report', 'stop'].map(v => Type.Literal(v))),
-			role: Type.Optional(Type.String()), run: Type.Optional(Type.String()), model: Type.Optional(Type.String()), testerModel: Type.Optional(Type.String()),
+			role: Type.Optional(Type.String()), run: Type.Optional(Type.String()), model: Type.Optional(Type.String()), testerModel: Type.Optional(Type.String()), widgetModel: Type.Optional(Type.String({ description: 'Widget tests: the widget\'s judging model for this run only (provider/id); widget.json is not changed.' })),
 			file: Type.Optional(Type.String({ description: 'Scenarios file; default lab-scenarios.md in the project.' })), check: Type.Optional(Type.String({ description: 'Which check: a number, "first", or words from it.' })), say: Type.Optional(Type.String({ description: 'A check in plain words, instead of a file.' })), detached: Type.Optional(Type.Boolean()),
 			behind: Type.Optional(Type.Boolean()), seconds: Type.Optional(Type.Integer({ minimum: 5, maximum: 1800 })),
 		}),
@@ -257,7 +280,7 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 				case 'list': return out(core.list());
 				case 'test': {
 					if (!p.role) throw Error('test needs agent.');
-					const run = await test(ctx, { role: p.role, model: p.model, testerModel: p.testerModel, background: p.behind });
+					const run = await test(ctx, { role: p.role, model: p.model, testerModel: p.testerModel, widgetModel: p.widgetModel, background: p.behind });
 					return out({ started: true, run: run.id, role: run.role, terminals: run.terminals, next: `wait {"run":"${run.id}"}` }, `Herdr Lab opened ${run.id}: ${Object.keys(run.terminals).join(' · ')}`);
 				}
 				case 'status': { if (!p.run) throw Error('status needs run.'); return out({ run: core.readRun(p.run), state: core.readState(p.run), core: core.coreUp(p.run) ? 'running' : 'stopped' }); }
@@ -269,14 +292,14 @@ export default function herdrPiLab(pi: ExtensionAPI): void {
 						if (!r) throw Error(`No lab ${p.run}.`);
 						if (r.phase === 'failed') return out({ finished: false, failed: r.error });
 						if (s?.result && s.report) return out({ finished: true, result: s.result, report: s.report, summary: s.summary, items: s.items.map((i: any) => ({ id: i.id, title: i.title, verdict: i.verdict, reason: i.reason, evidence: i.evidence, observed: i.observed })) },
-							[`${s.result === 'pass' ? '✓ all expectations met' : `✗ ${core.tally(s).fail} of ${s.items.length} failed`} · ${path.relative(ctx.cwd, s.report)}`, ...s.items.map((i: any) => `  ${MARK[i.verdict]} ${i.id} · ${i.title}`)].join('\n'));
+							[`${s.result === 'pass' ? '✓ all expectations met' : `✗ ${core.tally(s).fail} of ${s.items.length} failed${core.tally(s).unproven ? `, ${core.tally(s).unproven} unproven` : ''}`} · ${path.relative(ctx.cwd, s.report)}`, ...s.items.map((i: any) => `  ${MARK[i.verdict]} ${i.id} · ${i.title}`)].join('\n'));
 						await new Promise(res => setTimeout(res, 2000));
 					}
 					return out({ finished: false, waiting: true, state: core.readState(p.run), note: 'Still running; call wait again.' });
 				}
 				case 'report': {
 					if (!p.role) throw Error('report needs agent.');
-					const dir = path.join(locate(ctx.cwd, p.role).dir, 'reports');
+					const dir = reportsDir(ctx.cwd, p.role);
 					const latest = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().at(-1) : undefined;
 					return out(latest ? fs.readFileSync(path.join(dir, latest), 'utf8') : `No reports for ${p.role}.`);
 				}

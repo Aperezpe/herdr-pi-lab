@@ -8,12 +8,14 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { parse, locate, job as roleJob, access as roleAccess, slug, panes as extraPanes } from './expectations.mjs';
+import { parse, locate, locateWidget, job as roleJob, access as roleAccess, slug, panes as extraPanes } from './expectations.mjs';
 
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(HERE, 'package.json'), 'utf8')).version; } catch { return 'unknown'; } })();
 // The lab's own folder. Short on purpose: lab pane headers show the project copy, e.g. ~/.lab/rentaplace.
-export const HOME = process.env.HERDR_PI_LAB_HOME || path.join(os.homedir(), '.lab');
+export let HOME = process.env.HERDR_PI_LAB_HOME || path.join(os.homedir(), '.lab');
+/** Move this process's labs (runs, project copies, app state) to dir; the lab window and its Tester inherit it. Sealed cases use a folder inside the sealed folder. */
+export function useHome(dir) { HOME = path.resolve(dir); process.env.HERDR_PI_LAB_HOME = HOME; }
 // Labs started before 0.4.0 lived in ~/.herdr-lab; /lab list and /lab stop still find them.
 const LEGACY_HOME = process.env.HERDR_PI_LAB_HOME ? undefined : path.join(os.homedir(), '.herdr-lab');
 const rootOf = id => { const here = path.join(HOME, id); return !fs.existsSync(here) && LEGACY_HOME && fs.existsSync(path.join(LEGACY_HOME, id)) ? path.join(LEGACY_HOME, id) : here; };
@@ -158,8 +160,11 @@ export function labCopies(file, agentFolder) {
   const name = f.slice(own.length + 1);
   return !name.includes('/') && !/expectation/i.test(name);
 }
-/** Copy the project for a lab. withheld: extra files (relative paths) that never go in, such as an expectations file under another name. */
-export function copyProject(project, dest, agentFolder, withheld = []) {
+/**
+ * Copy the project for a lab. withheld: extra files (relative paths) that never go in, such as an expectations file under another name.
+ * prepare(dest) runs on the copy before its one commit, so what it changes never shows as a change made during the run.
+ */
+export function copyProject(project, dest, agentFolder, withheld = [], prepare) {
   const never = new Set(withheld.map(w => String(w).replace(/\\/g, '/').toLowerCase()));
   mkdir(dest);
   let files = [];
@@ -173,6 +178,7 @@ export function copyProject(project, dest, agentFolder, withheld = []) {
     if ((bytes += s.size) > 40 << 20) break;
     mkdir(path.dirname(path.join(dest, f))); fs.copyFileSync(a, path.join(dest, f)); copied++;
   }
+  if (prepare) prepare(dest);
   spawnSync('git', ['init', '-q'], { cwd: dest });
   // One commit, so agents that ask Git (which commit, what changed, git add) see a real repository.
   const who = ['-c', 'user.name=Herdr Lab', '-c', 'user.email=lab@herdr.invalid', '-c', 'commit.gpgsign=false'];
@@ -238,8 +244,8 @@ export function list() {
   }).sort((a, b) => String(b.started).localeCompare(String(a.started)));
 }
 export function tally(s) {
-  const c = { pass: 0, fail: 0, pending: 0, total: s.items?.length || 0 };
-  for (const i of s.items || []) c[i.verdict === 'pass' ? 'pass' : i.verdict === 'fail' ? 'fail' : 'pending']++;
+  const c = { pass: 0, fail: 0, unproven: 0, pending: 0, total: s.items?.length || 0 };
+  for (const i of s.items || []) c[['pass', 'fail', 'unproven'].includes(i.verdict) ? i.verdict : 'pending']++;
   return c;
 }
 
@@ -280,6 +286,14 @@ export function transcript(id, pane) {
         out.push({ at: e.timestamp, who: m.role === 'user' ? 'typed' : pane, text: text.trim() });
       } else if (e.type === 'custom_message' && e.customType === 'temporary-role.observation') out.push({ at: e.timestamp, who: 'lab', text: '(Main\'s new conversation reached this role)' });
       else if (e.type === 'custom' && e.customType === 'temporary-role.note.v1') { const t = e.data?.text || e.data?.message; out.push({ at: e.timestamp, who: 'lab', text: `(an agent note arrived and waits for the next prompt${t ? `: ${String(t).slice(0, 300)}` : ''})` }); }
+      // A note from a widget panel (the /widget extension's inbox): it waits for the next prompt, like an /agent note.
+      else if (e.type === 'custom' && e.customType === 'widget.note.v1') { const d = e.data || {}; out.push({ at: e.timestamp, who: 'lab', text: `(a note from the ${d.from || 'widget'} panel arrived and waits for the next prompt:\n${String(d.text || '').slice(0, 8000)})` }); }
+      // Any other message an extension put on Main's screen (display: true): what Main was given, in full, so it can be
+      // quoted after it scrolls away. A fullscreen pane keeps only its last lines; this keeps the record.
+      else if (e.type === 'custom_message' && e.display) {
+        const t = typeof e.content === 'string' ? e.content : (e.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+        if (t.trim()) out.push({ at: e.timestamp, who: 'lab', text: `(shown in ${pane} with the next prompt, from ${e.customType}:\n${t.trim().slice(0, 8000)})` });
+      }
     }
     return out;
   }
@@ -362,7 +376,7 @@ export function doctorText(d) {
 async function openLab(id, project, o, progress) {
   const d = dirs(id);
   progress('Copying the project');
-  const copied = copyProject(project, d.project, o.agentFolder, o.withheld);
+  const copied = copyProject(project, d.project, o.agentFolder, o.withheld, o.prepare);
   profile(d.agent);
   mkdir(path.join(d.config, 'herdr-core'));
   fs.writeFileSync(path.join(d.config, 'herdr-core', 'config.toml'), 'notes = false\n');
@@ -373,10 +387,12 @@ async function openLab(id, project, o, progress) {
   writeRun(id, { app: { bin: a.bin, bundle: a.bundle, version: a.version }, copied });
   hc(id, ['server', 'start'], { timeout: 20000 });
   inheritLook(d.app, which('hc'));
+  // Mods the run needs (a widget's panel) go into the lab's own app folder only, never the everyday one.
+  for (const m of o.mods || []) fs.cpSync(m.from, path.join(d.app, 'mods', m.name), { recursive: true });
 
   progress('Opening the Herdr Lab window');
-  const vars = ['HC_SESSION', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'HERDR_APP_HOME', 'HERDR_APP_NO_SOUND', 'HERDR_TELEMETRY', 'PI_CODING_AGENT_DIR', 'PI_SKIP_VERSION_CHECK', 'HERDR_PI_LAB_RUN'];
   const e = env(id), log = path.join(d.logs, 'app.log');
+  const vars = ['HC_SESSION', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'HERDR_APP_HOME', 'HERDR_APP_NO_SOUND', 'HERDR_TELEMETRY', 'PI_CODING_AGENT_DIR', 'PI_SKIP_VERSION_CHECK', 'HERDR_PI_LAB_RUN', ...(e.HERDR_PI_LAB_HOME ? ['HERDR_PI_LAB_HOME'] : [])];
   // HERDR_PI_LAB_BEHIND=1 opens every lab behind your windows (for unattended runs and captures).
   const behind = o.background || process.env.HERDR_PI_LAB_BEHIND === '1';
   if (a.bundle) run('/usr/bin/open', ['-n', ...(behind ? ['-g'] : []), '-a', a.bundle, ...vars.flatMap(k => ['--env', `${k}=${e[k]}`]), '--stdout', log, '--stderr', log], { id });
@@ -394,8 +410,10 @@ export async function start(o, progress = () => {}) {
   const project = path.resolve(o.project || process.cwd());
   const role = String(o.role || '').trim();
   if (!/^[a-z][a-z0-9_-]{0,31}$/i.test(role)) throw Error('Name the agent to test, e.g. /lab test Critic (one word, up to 32 characters).');
-  const loc = o.expectations ? { file: path.resolve(o.expectations), dir: path.dirname(path.resolve(o.expectations)) } : locate(project, role);
-  if (loc.missing) throw Error(`No expectations for ${role} yet. Write ${path.relative(project, loc.file)}, or run /lab new ${role} to write them together.`);
+  // o.cases: an expectations file kept outside the project (sealed cases). The agent's own folder still comes from the project.
+  const loc = o.cases ? { file: path.resolve(o.cases), dir: locate(project, role).dir }
+    : o.expectations ? { file: path.resolve(o.expectations), dir: path.dirname(path.resolve(o.expectations)) } : locate(project, role);
+  if (!o.cases && loc.missing) throw Error(`No expectations for ${role} yet. Write ${path.relative(project, loc.file)}, or run /lab new ${role} to write them together.`);
   const markdown = fs.readFileSync(loc.file, 'utf8');
   const spec = parse(markdown, role);
   const customJob = roleJob(loc.dir);
@@ -411,12 +429,12 @@ export async function start(o, progress = () => {}) {
   const d = dirs(id);
   mkdir(d.root); mkdir(d.logs); mkdir(d.config); mkdir(d.sock);
   fs.writeFileSync(path.join(d.root, 'expectations.md'), markdown);
-  const base = { id, version: VERSION, role, project, projectName, expectations: loc.file, roleDir: loc.dir, customJob: !!customJob, model: o.model, roleModel: o.roleModel || 'fast', testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} };
+  const base = { id, version: VERSION, role, project, projectName, expectations: loc.file, roleDir: loc.dir, ...(o.reportDir ? { reportDir: path.resolve(o.reportDir) } : {}), customJob: !!customJob, model: o.model, roleModel: o.roleModel || 'fast', testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} };
   writeRun(id, base);
   writeState(id, { id, role, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
   try {
     // The tested agent's own folder goes into the copy (its job, glossary, memories), never its expectations: see labCopies.
-    await openLab(id, project, { background: o.background, agentFolder: path.relative(project, loc.dir), withheld: [path.relative(project, loc.file)] }, progress);
+    await openLab(id, project, { background: o.background, agentFolder: path.relative(project, loc.dir), withheld: o.cases ? [] : [path.relative(project, loc.file)] }, progress);
     fs.cpSync(ext, path.join(d.root, 'role-extension'), { recursive: true, filter: s => !/node_modules|\.git$/.test(s) });
 
     progress('Starting guest Main');
@@ -433,20 +451,7 @@ export async function start(o, progress = () => {}) {
     writeRun(id, { phase: 'main', terminals: { Main: main }, space: space.space });
     await piReady(id, main, 90);
 
-    // Run lines set up the copy (plant a bug, seed data) before Main's first prompt; the lab runs them itself, not a model.
-    const setup = [];
-    for (const step of spec.before.filter(s => s.kind === 'run')) {
-      progress(`Before: ${step.text.slice(0, 60)}`);
-      const r = spawnSync('/bin/sh', ['-c', step.text], { cwd: d.project, env: env(id), encoding: 'utf8', timeout: 120000 });
-      setup.push({ command: step.text, status: r.status, output: ((r.stdout || '') + (r.stderr || '')).slice(-2000) });
-      writeRun(id, { setup });
-      if (r.status !== 0) throw Error(`Before (line ${step.line}): "${step.text}" exited ${r.status ?? r.signal}: ${((r.stderr || r.stdout || '').trim().slice(-400)) || 'no output'}`);
-    }
-    for (const step of spec.before.filter(s => s.kind === 'do')) {
-      if (step.pane !== 'Main') throw Error(`Before steps run in Main only (line ${step.line}).`);
-      progress(`Before: ${step.text.slice(0, 60)}`);
-      await type(id, main, step.text, [main], { quiet: 2 });
-    }
+    await before(id, spec, main, progress);
 
     progress(`Opening ${role} with /agent`);
     const known = new Set(windowPanes(id).map(p => p.terminal));
@@ -466,9 +471,9 @@ export async function start(o, progress = () => {}) {
       '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-mcp', '--no-session', '--name', 'Tester',
       '--model', o.testerModel || o.model, ...(o.testerThinking ? ['--thinking', o.testerThinking] : []),
       '--append-system-prompt', path.join(HERE, 'tester', 'prompt.md'), '--lab-run', id, 'Begin the black-box test.'];
-    const before = new Set(windowPanes(id).map(p => p.terminal));
+    const panesBefore = new Set(windowPanes(id).map(p => p.terminal));
     appJson(id, ['do', 'pane.split', JSON.stringify({ pane: opened.pane, direction: 'down', argv: testerArgv })], { timeout: 20000 });
-    const tester = await until(() => windowPanes(id).find(p => !before.has(p.terminal)), 30, 'the Tester pane');
+    const tester = await until(() => windowPanes(id).find(p => !panesBefore.has(p.terminal)), 30, 'the Tester pane');
     hc(id, ['label', tester.terminal, 'lab.pane=Tester'], { check: false });
     for (const name of extraPanes(spec, role)) progress(`Note: the file names a pane "${name}" that this lab does not open.`);
     writeRun(id, { phase: 'testing', terminals: { ...terminals, Tester: tester.terminal } });
@@ -478,6 +483,23 @@ export async function start(o, progress = () => {}) {
     writeRun(id, { phase: 'failed', error: err.message });
     if (!o.keepOnError) await stop(id).catch(() => {});
     err.run = id; throw err;
+  }
+}
+
+/** Run lines set up the copy (plant a bug, seed data) before Main's first prompt; the lab runs them itself, not a model. Then Main's Do lines. */
+async function before(id, spec, main, progress) {
+  const d = dirs(id), setup = [];
+  for (const step of spec.before.filter(s => s.kind === 'run')) {
+    progress(`Before: ${step.text.slice(0, 60)}`);
+    const r = spawnSync('/bin/sh', ['-c', step.text], { cwd: d.project, env: env(id), encoding: 'utf8', timeout: 120000 });
+    setup.push({ command: step.text, status: r.status, output: ((r.stdout || '') + (r.stderr || '')).slice(-2000) });
+    writeRun(id, { setup });
+    if (r.status !== 0) throw Error(`Before (line ${step.line}): "${step.text}" exited ${r.status ?? r.signal}: ${((r.stderr || r.stdout || '').trim().slice(-400)) || 'no output'}`);
+  }
+  for (const step of spec.before.filter(s => s.kind === 'do')) {
+    if (step.pane !== 'Main') throw Error(`Before steps run in Main only (line ${step.line}).`);
+    progress(`Before: ${step.text.slice(0, 60)}`);
+    await type(id, main, step.text, [main], { quiet: 2 });
   }
 }
 
@@ -694,4 +716,208 @@ export async function startCheck(o, progress = () => {}) {
 const checkPrompt = id => { const c = readRun(id).check; return `Run this check in the lab.\n\n${c.title}\n${c.steps.map(s => `${s.id}. ${s.text}`).join('\n')}\n\n${readPanes(id)}`; };
 const tailFile = f => { try { return fs.readFileSync(f, 'utf8').trim().slice(-600) || 'empty'; } catch { return 'missing'; } };
 
-export { slug, parse, locate };
+// ---------- widgets: test a /widget panel the way a person uses it ----------
+
+/** Where the everyday Herdr app keeps its mods; the widget panel is copied from here into the lab. */
+const dailyAppHome = () => path.join(os.homedir(), '.config', 'herdr-app');
+/** The project's /widget extension (index.ts and runner.mjs). */
+export function widgetExtension(project) {
+  const dir = path.join(project, '.pi', 'extensions', 'widget');
+  if (!fs.existsSync(path.join(dir, 'index.ts')) || !fs.existsSync(path.join(dir, 'runner.mjs'))) throw Error(`The /widget extension was not found in ${path.join(project, '.pi/extensions/widget')}.`);
+  return dir;
+}
+export function widgetMod() {
+  const dir = path.join(dailyAppHome(), 'mods', 'widget');
+  if (!fs.existsSync(path.join(dir, 'main.js'))) throw Error(`The widget panel (Herdr mod) was not found in ${dir}.`);
+  return dir;
+}
+const SOURCE_WORDS = { command: 'a command line', script: 'a script', mcp: 'an MCP call' };
+/**
+ * Which data a widget reads in the lab: its saved sample whenever it has one. Without a sample only a
+ * command-line source runs, and it runs in the project copy; a script or MCP source may read outside
+ * the project (other sessions, herdr, a server), so the lab refuses it rather than read the live source.
+ * "lab": "live" in widget.json says the source reads only what the lab owns (the project copy, guest
+ * Main's Pi session under PI_CODING_AGENT_DIR), so it runs live in the lab even with a sample.
+ */
+export function widgetData(cfg, hasSample) {
+  if (cfg?.lab === 'live') return { sample: false, live: true };
+  if (hasSample) return { sample: true };
+  const type = cfg?.source?.type;
+  if (type === 'command') return { sample: false };
+  return { error: `reads its data with ${SOURCE_WORDS[type] || 'an unknown source'} and has no saved sample. The lab never reads a live source outside the project: save one first with /widget sample ${cfg?.name || '<name>'}.` };
+}
+
+const widgetDir = id => { const r = readRun(id); return path.join(dirs(id).project, 'widgets', r.widget.name); };
+const HISTORY = id => path.join(dirs(id).root, 'widget-shown.txt');
+/** What the widget panel shows now, as text (the panel writes it in a lab). Every new view is kept in the run's history. */
+export function widgetShown(id) {
+  let now = '';
+  try { now = fs.readFileSync(path.join(widgetDir(id), 'state', 'shown.txt'), 'utf8').trimEnd(); } catch {}
+  const r = readRun(id);
+  if (now && now !== r.widgetLast) { fs.appendFileSync(HISTORY(id), `--- ${new Date().toISOString().slice(11, 19)} ---\n${now}\n`); writeRun(id, { widgetLast: now }); }
+  return now;
+}
+/** Everything the panel has shown since it opened, oldest first. */
+export const widgetHistory = id => { widgetShown(id); try { return fs.readFileSync(HISTORY(id), 'utf8'); } catch { return ''; } };
+// Busy while a refresh runs (state/status.json) or any other background action says so (state/busy.json, the one
+// contract for widget actions that outlive a key press, such as gathering context before a send).
+const widgetBusy = (id, shown) => fs.existsSync(path.join(widgetDir(id), 'state', 'status.json')) || fs.existsSync(path.join(widgetDir(id), 'state', 'busy.json')) || /· refreshing$/m.test(shown.split('\n')[0] || '') || shown.split('\n').at(-1) === '…';
+
+/** Wait until the widget is quiet (no refresh, no action running, its text unchanged) and the listed terminals are idle. */
+export async function widgetSettle(id, terminals = [], { quiet = 3, seconds = 300 } = {}) {
+  const end = Date.now() + seconds * 1000;
+  let last = '', since = Date.now();
+  for (;;) {
+    const shown = widgetShown(id), gs = terminals.map(t => term(id, t));
+    const sig = shown + '\u0000' + gs.map(g => `${stateOf(g)}:${g.turn}`).join('|');
+    if (sig !== last) { last = sig; since = Date.now(); }
+    const busy = !shown || widgetBusy(id, shown) || gs.some(g => !idle(g));
+    if (!busy && Date.now() - since >= quiet * 1000) return { settled: true, shown };
+    if (Date.now() > end) return { settled: false, shown };
+    await sleep(400);
+  }
+}
+
+/**
+ * After Main did something, wait for the widget's next refresh to start and finish, as a person would
+ * before reading the panel. A widget with manual refresh only is not waited for.
+ */
+export async function widgetNextRefresh(id, since, terminals = []) {
+  const cfg = readJson(path.join(widgetDir(id), 'widget.json'), {}), secs = Number(cfg.refresh_seconds) || 0;
+  // A widget on its saved sample can't show anything new after a Main step, so there is no refresh to wait for.
+  if (!secs || readRun(id)?.widget?.sample) return { waited: false };
+  const last = () => Date.parse(readJson(path.join(widgetDir(id), 'state', 'last.json'), {})?.at || '') || 0;
+  const end = Date.now() + (secs + 60) * 1000;
+  while (last() < since && Date.now() < end) { widgetShown(id); await sleep(500); }
+  const r = await widgetSettle(id, terminals);
+  return { waited: true, refreshed: last() >= since, settled: r.settled };
+}
+
+const KEY_RE = /^([a-z0-9]|up|down|enter)$/;
+/** Press the widget's own keys, one after another, as a person would with the panel focused. */
+export async function widgetPress(id, keys) {
+  const bad = keys.filter(k => !KEY_RE.test(String(k).toLowerCase()));
+  if (bad.length) throw Error(`Not a key the panel reads: ${bad.join(', ')}. Use one letter or digit, up, down or enter.`);
+  widgetShown(id);
+  fs.appendFileSync(HISTORY(id), `--- ${new Date().toISOString().slice(11, 19)} · the Tester pressed ${keys.join(' ')} ---\n`);
+  for (const k of keys) { app(id, ['do', `widget.press-${String(k).toLowerCase()}`], { timeout: 10000 }); await sleep(300); }
+}
+/** Click one of the panel's buttons: an action chip by its label, "Refresh", or a row ("item 2"). */
+export async function widgetClick(id, what) {
+  const w = String(what).trim(), row = w.match(/^(?:item|row)\s*#?(\d+)$/i);
+  if (row) { widgetShown(id); fs.appendFileSync(HISTORY(id), `--- ${new Date().toISOString().slice(11, 19)} · the Tester clicked item ${row[1]} ---\n`); app(id, ['do', `widget.click-item-${row[1]}`], { timeout: 10000 }); return `item ${row[1]}`; }
+  const cfg = readJson(path.join(widgetDir(id), 'widget.json'), {});
+  if (/^refresh( from sample)?$/i.test(w)) { await widgetPress(id, ['r']); return 'Refresh'; }
+  const a = (cfg.actions || []).find(x => x.label.toLowerCase() === w.toLowerCase());
+  if (!a) throw Error(`The panel has no button "${w}". Buttons: ${[...(cfg.actions || []).map(x => x.label), 'Refresh', 'item <n>'].join(', ')}.`);
+  await widgetPress(id, [a.key]);
+  return a.label;
+}
+
+/** Project files changed in the copy since the lab started: Git status and diff, leaving out the widget's own state/ folder. */
+export function projectChanges(id) {
+  const d = dirs(id), r = readRun(id), state = `widgets/${r.widget?.name}/state/`;
+  const git = args => spawnSync('git', ['-C', d.project, ...args], { encoding: 'utf8', maxBuffer: 16 << 20 }).stdout || '';
+  const files = git(['status', '--porcelain', '-uall']).split('\n').filter(Boolean).filter(l => !l.slice(3).startsWith(state));
+  if (!files.length) return 'No project file changed.';
+  const out = [`Changed project files (${files.length}):`, ...files];
+  for (const l of files) {
+    const f = l.slice(3);
+    const diff = l.startsWith('??') ? (() => { try { return `new file ${f}:\n` + fs.readFileSync(path.join(d.project, f), 'utf8').slice(0, 1500); } catch { return ''; } })() : git(['diff', '--no-color', '--', f]).slice(0, 1500);
+    if (diff.trim()) out.push('', diff.trimEnd());
+  }
+  return out.join('\n');
+}
+/** The saved sample the widget reads in this lab. */
+export function widgetSample(id) {
+  const r = readRun(id);
+  if (!r.widget?.sample) return 'This widget runs without a saved sample: it reads a command line in the project copy.';
+  try { return fs.readFileSync(path.join(widgetDir(id), 'sample.txt'), 'utf8'); } catch { return '(the sample is missing)'; }
+}
+
+/**
+ * Start a lab for one widget: copy the project, install the panel in the lab window only, open guest Main
+ * with the /widget extension, run the Before steps, open the widget beside Main on its saved sample, then
+ * open the Tester below it. o.widgetModel sets the judging model for this run only (in the copy's widget.json).
+ */
+export async function startWidget(o, progress = () => {}) {
+  const project = path.resolve(o.project || process.cwd());
+  const name = slug(o.role);
+  const loc = locateWidget(project, name);
+  if (!loc) throw Error(`No widget ${name}: widgets/${name}/widget.json is missing.`);
+  if (loc.missing) throw Error(`No expectations for the ${name} widget yet. Write widgets/${name}/expectations.md.`);
+  const cfg = readJson(loc.config, undefined);
+  if (!cfg) throw Error(`widgets/${name}/widget.json is not valid JSON.`);
+  const data = widgetData({ ...cfg, name }, fs.existsSync(loc.sample));
+  if (data.error) throw Error(`The ${name} widget ${data.error}`);
+  const markdown = fs.readFileSync(loc.file, 'utf8');
+  const spec = parse(markdown, name);
+  const ext = widgetExtension(project), mod = widgetMod();
+  if (!o.model) throw Error('Choose the model guest Main uses (provider/id).');
+  if (o.widgetModel && !/^[\w.-]+\/[\w.:-]+$/.test(o.widgetModel)) throw Error(`--widget-model takes provider/id, e.g. anthropic/claude-haiku-4-5 (got "${o.widgetModel}").`);
+  const piBin = piCommand();
+  if (!which('hc')) throw Error('hc not on PATH.');
+
+  const id = 'lab-' + randomBytes(3).toString('hex');
+  const projectName = claim(id, project);
+  const d = dirs(id);
+  mkdir(d.root); mkdir(d.logs); mkdir(d.config); mkdir(d.sock);
+  fs.writeFileSync(path.join(d.root, 'expectations.md'), markdown);
+  const widget = { name, sample: data.sample, live: !!data.live, model: o.widgetModel || cfg.model, settingsModel: cfg.model, override: !!o.widgetModel, source: cfg.source?.type };
+  writeRun(id, { id, version: VERSION, kind: 'widget', role: name, widget, project, projectName, expectations: loc.file, roleDir: loc.dir, model: o.model, testerModel: o.testerModel || o.model, created: new Date().toISOString(), phase: 'starting', terminals: {} });
+  writeState(id, { id, kind: 'widget', role: name, title: spec.title, items: spec.items.map(i => ({ id: i.id, title: i.title, verdict: null })), result: null });
+  try {
+    const prepare = dest => {
+      // Every widget starts clean: no pane, result or lock from the everyday window.
+      const root = path.join(dest, 'widgets');
+      if (fs.existsSync(root)) for (const n of fs.readdirSync(root)) fs.rmSync(path.join(root, n, 'state'), { recursive: true, force: true });
+      if (o.widgetModel) { const f = path.join(root, name, 'widget.json'); writeJson(f, { ...readJson(f, {}), model: o.widgetModel }); }
+    };
+    await openLab(id, project, { background: o.background, withheld: [path.relative(project, loc.file)], prepare, mods: [{ name: 'widget', from: mod }] }, progress);
+    fs.cpSync(ext, path.join(d.root, 'widget-extension'), { recursive: true });
+
+    progress('Starting guest Main');
+    const think = o.thinking ? ['--thinking', o.thinking] : [];
+    // mainExtensions: more extensions guest Main loads, e.g. /agent when a widget's actions reach Main through it.
+    const extra = (o.mainExtensions ?? []).flatMap(e => ['-e', e]);
+    const mainArgv = [...piBin, '--no-extensions', '-e', path.join(d.root, 'widget-extension', 'index.ts'), ...extra, '--tools', 'read,grep,find,ls', '--no-skills', '--no-prompt-templates', '--no-themes', '--name', 'Main', '--model', o.model, ...think];
+    const space = appJson(id, ['do', 'space.new', JSON.stringify({ machine: '', name: `Lab · ${name} widget`, folder: d.project, argv: mainArgv })], { timeout: 20000 });
+    if (!space?.terminal) throw Error('Herdr Lab did not confirm guest Main.');
+    const main = space.terminal;
+    hc(id, ['label', main, 'lab.pane=Main'], { check: false });
+    writeRun(id, { phase: 'main', terminals: { Main: main }, space: space.space });
+    await piReady(id, main, 90);
+    await before(id, spec, main, progress);
+
+    progress(`Opening the ${name} widget${data.sample ? ' on its saved sample' : data.live ? ' on live data inside the lab' : ''}`);
+    const runner = path.join(d.root, 'widget-extension', 'runner.mjs');
+    const r = spawnSync(process.execPath, [runner, 'open', name, '--project', d.project, '--main', main, ...(data.sample ? ['--sample'] : [])], { env: env(id), encoding: 'utf8', timeout: 60000 });
+    const res = parseJson(r.stdout || '');
+    if (!res?.ok) throw Error(`The widget did not open: ${res?.error || (r.stderr || r.stdout || 'no answer').trim().slice(0, 400)}`);
+    writeRun(id, { phase: 'widget', widget: { ...widget, pane: res.pane } });
+    const first = await widgetSettle(id, [main], { quiet: 3, seconds: 300 });
+    if (!first.shown) throw Error('The widget opened but never showed anything (no state/shown.txt). Is the lab copy of the widget mod the one that writes it?');
+
+    progress('Opening the Tester');
+    const tools = ['lab_do', 'lab_widget', 'lab_look', 'lab_find', 'lab_sample', 'lab_changes', 'lab_verdict', 'lab_finish'].join(',');
+    const testerArgv = [...piBin, '--no-extensions', '-e', path.join(HERE, 'tester', 'index.ts'), '--tools', tools,
+      '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-mcp', '--no-session', '--name', 'Tester',
+      '--model', o.testerModel || o.model, ...(o.testerThinking ? ['--thinking', o.testerThinking] : []),
+      '--append-system-prompt', path.join(HERE, 'tester', 'widget-prompt.md'), '--lab-run', id, 'Begin the black-box test of the widget.'];
+    const known = new Set(windowPanes(id).map(p => p.terminal));
+    const split = appJson(id, ['do', 'pane.split', JSON.stringify({ pane: res.pane, direction: 'down', argv: testerArgv })], { timeout: 20000, check: false });
+    if (!split) appJson(id, ['do', 'pane.split', JSON.stringify({ pane: windowPanes(id).find(p => p.terminal === main)?.pane, direction: 'down', argv: testerArgv })], { timeout: 20000 });
+    const tester = await until(() => windowPanes(id).find(p => !known.has(p.terminal)), 30, 'the Tester pane');
+    hc(id, ['label', tester.terminal, 'lab.pane=Tester'], { check: false });
+    for (const n of extraPanes(spec, name)) progress(`Note: the file names a pane "${n}"; a widget lab has Main and ${name}.`);
+    writeRun(id, { phase: 'testing', terminals: { Main: main, Tester: tester.terminal } });
+    progress('Tester running');
+    return readRun(id);
+  } catch (err) {
+    writeRun(id, { phase: 'failed', error: err.message });
+    if (!o.keepOnError) await stop(id).catch(() => {});
+    err.run = id; throw err;
+  }
+}
+
+export { slug, parse, locate, locateWidget };

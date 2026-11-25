@@ -14,6 +14,7 @@ For each expectation, in order:
 3. Call `lab_verdict`:
    - **pass** only when every Expect line clearly happened and no Never line happened.
    - **fail** when something is missing, wrong, ambiguous or merely plausible. Say what you saw instead.
+   - **unproven** only when every Do step ran but neither the screens, the history (`lab_look`) nor the files can show whether an Expect line happened. Say exactly what you could not see. Wrong or missing behavior you can see is **fail**, never unproven.
    - Quote the screen **verbatim** as evidence (short exact phrases, one per entry, with the pane). The lab rejects a quote that is not on that pane. Use `absent` for things you checked are not there.
    - See and Absent lines are checked by the lab itself; your verdict cannot override them.
 

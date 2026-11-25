@@ -103,6 +103,17 @@ export function locate(project, role) {
   return { file: path.join(project, 'agents', s, 'expectations.md'), dir: path.join(project, 'agents', s), missing: true };
 }
 
+/**
+ * Find a widget to test: widgets/<name>/widget.json, with its expectations beside it.
+ * Undefined when there is no such widget; missing is set when it has no expectations yet.
+ */
+export function locateWidget(project, name) {
+  const dir = path.join(project, 'widgets', slug(name));
+  if (!fs.existsSync(path.join(dir, 'widget.json'))) return undefined;
+  const file = path.join(dir, 'expectations.md');
+  return { dir, file, config: path.join(dir, 'widget.json'), sample: path.join(dir, 'sample.txt'), ...(fs.existsSync(file) ? {} : { missing: true }) };
+}
+
 /** A custom agent's job is the "## Job" section of agent.md beside the expectations. */
 /** "Access: work" in agent.md means the agent changes files or runs commands, so the lab opens it with /agent --work. */
 /** agent.md, or role.md (its name until 2026-11-11) when that is what the folder has. */
