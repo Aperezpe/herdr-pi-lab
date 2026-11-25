@@ -28,6 +28,7 @@ const examples: AutocompleteItem[] = [
 const TEST_FLAGS: AutocompleteItem[] = [
 	{ value: '--model ', label: '--model provider/id', description: 'Model for guest Main and the agent (default: this one)' },
 	{ value: '--tester-model ', label: '--tester-model provider/id', description: 'Model that judges (default: this one)' },
+	{ value: '--widget-model ', label: '--widget-model provider/id', description: 'Widgets: the widget\'s model for this run only' },
 	{ value: '--behind', label: '--behind', description: 'Open the lab window behind this one' },
 ];
 
@@ -45,6 +46,8 @@ export function labHelp(shortcut?: string): string {
 		'  Never (Critic): agrees with Main\'s rule as if the number of nights had been decided',
 		'  See (Main): "exact text"      Absent (Main): "exact text"',
 		'Do lines are typed exactly as written. Expect and Never are judged by the Tester, which must quote the screen. See and Absent are checked by the lab itself.',
+		'',
+		'Widgets: /lab test <name> also takes a widget in widgets/<name>/ with an expectations.md. The lab installs the widget\'s panel in the lab window only and opens it beside guest Main, on its saved sample (a widget that reads outside the project must have one; the live source is never read). Do (Main) lines are typed into Main; Do (<widget>) lines say in plain words what to do on the panel ("refresh", "Keep", "select the first issue and send it to Main") and the Tester does it with the panel\'s own keys or buttons. It waits until the widget is quiet, then judges Expect and Never from what the widget and Main show and from which project files changed. It may read the saved sample to check the widget against it, never instructions.md. --widget-model provider/id sets the widget\'s model for one run; widget.json is not changed. Reports go to widgets/<name>/reports/.',
 		'',
 		'Checks are plain words. lab-scenarios.md at the project root holds them: each "## 1 · Title" is one check, each line under it one step, and a line ending in "?" is a question answered from the screen. Ask Main to "use the lab to run the first check in lab-scenarios.md", or type /lab test lab-scenarios.md 1 (a number, "first", or words such as /split; nothing runs them all). A lab agent in the background opens panes, types, presses keys, reads the screens and reports each step as "I tried X, expected Y, got Z" with a quote the lab captured. The report goes to lab-reports/ and the lab closes itself.',
 		'',

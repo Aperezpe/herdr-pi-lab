@@ -188,6 +188,19 @@ See (Main): "1 agent note"
 
 Copy the [examples](examples/) into your project's `agents/` folder to start: `critic`, `notes`, `concierge` (a custom agent) and `yesman`, a deliberately bad agent whose report should fail.
 
+## Widgets
+
+`/lab test <name>` also tests a `/widget` panel in `widgets/<name>/`, when that folder has an `expectations.md` beside `widget.json`.
+
+- The lab copies the `widget` Herdr mod into the lab window's own app folder and loads the project's `/widget` extension in guest Main. Your everyday window and `widget.json` are untouched. Each widget's `state/` is cleared in the copy.
+- The widget opens beside guest Main on its saved `sample.txt` whenever it has one. Without a sample, a command-line source runs in the project copy; a script or MCP source is refused, because it may read outside the project. A widget whose source reads only what the lab owns (the project copy, or guest Main's Pi session under `PI_CODING_AGENT_DIR`) sets `"lab": "live"` in `widget.json` and runs live in the lab. After a Main step the lab waits for the widget's next refresh, unless the widget runs on its saved sample, which a refresh can't change.
+- `Do (Main)` lines are typed into Main. `Do (<widget>)` lines say in plain words what to do on the panel ("refresh", "Keep", "select the first item and send it to Main"); the Tester does it with the panel's own keys or buttons (`lab_widget`). The name in brackets is `Main` or the widget's name; a line without one means the widget.
+- After each step the lab waits until the widget is quiet (no refresh or action running, its text unchanged) and Main is idle. The Tester judges Expect and Never from the text the widget and Main show and from the project files that changed (quote them as `Files`). It may read the saved sample (`lab_sample`), never `instructions.md`.
+- `--widget-model provider/id` sets the widget's model for one run, in the copy only.
+- Reports go to `widgets/<name>/reports/` in your project.
+
+In a lab, the panel writes what it shows to `state/shown.txt` and takes `press-<key>` and `click-item-<n>` commands; outside a lab it does neither.
+
 ## What a lab is
 
 - **Its own Herdr:** a copy of your Herdr app with its own identity (`dev.herdr.lab`, named Herdr Lab), so macOS never confuses it with your everyday Herdr. It starts its own core (`HC_SESSION=lab-…`) and app home, with your Herdr look and keys.
